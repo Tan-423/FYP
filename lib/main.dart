@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'accommodation/accommodation_screen.dart';
 import 'bill_tracking/bill_tracking_screen.dart';
+import 'chatbot/chatbot_screen.dart';
 import 'event_management/event_management.dart';
 import 'community/community_screen.dart';
+import 'payment/payment_screen.dart';
 
 void main() {
   runApp(const FypApp());
@@ -169,9 +171,17 @@ class _MainShellState extends State<MainShell> {
             Navigator.of(rootContext).push(
               MaterialPageRoute(builder: (_) => const BillTrackingScreen()),
             );
+        } else if (module.id == 'payment') {
+          Navigator.of(rootContext).push(
+            MaterialPageRoute(builder: (_) => const PaymentScreen()),
+          );
           } else if (module.id == 'events') {
             Navigator.of(rootContext).push(
               MaterialPageRoute(builder: (_) => const EventManagementScreen()),
+            );
+          } else if (module.id == 'chatbot') {
+            Navigator.of(rootContext).push(
+              MaterialPageRoute(builder: (_) => const ChatbotScreen()),
             );
           } else if (module.id == 'accommodation') {
             Navigator.of(rootContext).push(
@@ -215,13 +225,11 @@ class _MainShellState extends State<MainShell> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       body: SafeArea(child: IndexedStack(index: _tabIndex, children: pages)),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: _AiGuideButton(
         onPressed: () {
           final chatbot = _moduleCatalog.firstWhere((m) => m.id == 'chatbot');
           _openModule(chatbot);
         },
-        icon: const Icon(Icons.chat_bubble_rounded),
-        label: const Text('AI Guide'),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: NavigationBar(
@@ -239,6 +247,49 @@ class _MainShellState extends State<MainShell> {
             label: 'Profile',
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AiGuideButton extends StatelessWidget {
+  const _AiGuideButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'AI Guide',
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        elevation: 8,
+        shape: const CircleBorder(),
+        shadowColor: const Color(0x4D3B82F6),
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const CircleBorder(),
+          child: Ink(
+            width: 64,
+            height: 64,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white,
+                size: 26,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
