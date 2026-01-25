@@ -2,9 +2,15 @@ part of 'event_management.dart';
 
 mixin EventManagementViews on State<EventManagementScreen>, EventManagementActions {
   Widget _buildEventImage(String imageRef, {BoxFit fit = BoxFit.cover}) {
-    final assetPath =
-        imageRef.trim().isEmpty ? _fallbackImageUrl : imageRef.trim();
-    return Image.asset(assetPath, fit: fit);
+    final resolved = imageRef.trim().isEmpty ? _fallbackImageUrl : imageRef.trim();
+    if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+      return Image.network(
+        resolved,
+        fit: fit,
+        errorBuilder: (_, __, ___) => Image.asset(_fallbackImageUrl, fit: fit),
+      );
+    }
+    return Image.asset(resolved, fit: fit);
   }
   Widget _buildNotificationBar() {
     if (_notificationMessage.isEmpty) {
@@ -40,16 +46,162 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     );
   }
 
+  Widget _buildAuthView() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.event, size: 64, color: Colors.blue),
+            const SizedBox(height: 16),
+            const Text(
+              'Event Management Gateway',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _loginAsTraveler,
+                icon: const Icon(Icons.person),
+                label: const Text('Login as Traveler'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _openOrganizerLogin,
+                icon: const Icon(Icons.apartment),
+                label: const Text('Login as Organizer'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrganizerLoginView() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextButton.icon(
+              onPressed: () => _selectView(EventView.auth),
+              icon: const Icon(Icons.chevron_left),
+              label: const Text('Back'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Organizer Portal',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _organizerEmailController,
+              label: 'Work Email',
+              hint: 'Enter work email',
+              prefixIcon: Icons.mail_outline,
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Password',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _organizerPasswordController,
+                  obscureText: !_showOrganizerPassword,
+                  decoration: InputDecoration(
+                    hintText: 'Enter password',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      onPressed: () =>
+                          setState(() => _showOrganizerPassword = !_showOrganizerPassword),
+                      icon: Icon(
+                        _showOrganizerPassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFFF9FAFB),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _isAuthenticating ? null : _handleOrganizerLogin,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: _isAuthenticating
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text('Authorize Login'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildContent() {
     switch (_view) {
+      case EventView.auth:
+        return _buildAuthView();
+      case EventView.organizerLogin:
+        return _buildOrganizerLoginView();
       case EventView.explore:
         return _buildExploreView();
       case EventView.detail:
         return _buildDetailView();
       case EventView.tickets:
         return _buildTicketsView();
+      case EventView.manage:
+        return _buildManageView();
+      case EventView.profile:
+        return _buildProfileView();
       case EventView.organize:
-        return _buildOrganizeView();
+        return _buildOrganizeView(isEditing: false);
+      case EventView.edit:
+        return _buildOrganizeView(isEditing: true);
     }
   }
 
@@ -285,6 +437,13 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   event.description,
                   style: const TextStyle(color: Colors.black54),
                 ),
+                if (event.organizerName.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Organized by ${event.organizerName}',
+                    style: const TextStyle(color: Colors.black45),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -388,6 +547,229 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
         final ticket = _tickets[index];
         return _buildTicketCard(ticket);
       },
+    );
+  }
+
+  Widget _buildManageView() {
+    if (!_isOrganizer) {
+      return _buildEmptyState(
+        icon: Icons.lock_outline,
+        title: 'Organizer access required.',
+        subtitle: 'Please login as an organizer to manage events.',
+        actionLabel: 'Back to Login',
+        onAction: () => _selectView(EventView.auth),
+      );
+    }
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _currentUserName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Text(
+                    'Organizer Dashboard',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: _openProfile,
+                    icon: const Icon(Icons.person_outline),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _startNewEvent,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Post Event'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<List<EventModel>>(
+            stream: _eventsStream(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return _buildEmptyState(
+                  icon: Icons.error_outline,
+                  title: 'Unable to load your events.',
+                );
+              }
+              final events = (snapshot.data ?? []).where((event) {
+                final matchesId =
+                    _currentUserId != null && event.organizerId == _currentUserId;
+                final matchesName =
+                    event.organizerName.isNotEmpty &&
+                    event.organizerName == _currentUserName;
+                return matchesId || matchesName;
+              }).toList();
+              if (events.isEmpty) {
+                return _buildEmptyState(
+                  icon: Icons.event_busy,
+                  title: 'No events yet.',
+                  subtitle: 'Create your first event to get started.',
+                  actionLabel: 'Post Event',
+                  onAction: _startNewEvent,
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: events.length,
+                itemBuilder: (context, index) {
+                  final event = events[index];
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 6,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(
+                            width: 70,
+                            height: 70,
+                            child: _buildEventImage(event.imageUrl, fit: BoxFit.cover),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                event.name,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'By ${event.organizerName}',
+                                style: const TextStyle(
+                                  color: Colors.black54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                event.price > 0
+                                    ? 'RM ${event.price.toStringAsFixed(2)}'
+                                    : 'FREE',
+                                style: const TextStyle(color: Colors.blue),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => _startEditingEvent(event),
+                          icon: const Icon(Icons.edit, color: Colors.blue),
+                        ),
+                        IconButton(
+                          onPressed: () => _deleteEvent(event.id),
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProfileView() {
+    if (!_isOrganizer) {
+      return _buildEmptyState(
+        icon: Icons.lock_outline,
+        title: 'Organizer access required.',
+        subtitle: 'Please login as an organizer to update your profile.',
+        actionLabel: 'Back to Login',
+        onAction: () => _selectView(EventView.auth),
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => _selectView(EventView.manage),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'Organizer Profile',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildTextField(
+            controller: _profileNameController,
+            label: 'Organization Name',
+            hint: 'Enter organization name',
+            prefixIcon: Icons.apartment,
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isUpdatingProfile ? null : _handleUpdateProfile,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child: _isUpdatingProfile
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Text('Save Profile Changes'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -512,15 +894,25 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     );
   }
 
-  Widget _buildOrganizeView() {
+  Widget _buildOrganizeView({required bool isEditing}) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Publish New Event',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => _selectView(
+                    _isOrganizer ? EventView.manage : EventView.explore),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isEditing ? 'Update Event' : 'Publish New Event',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           _buildTextField(
@@ -554,6 +946,39 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => setState(() => _showNewCategoryField = true),
+              icon: const Icon(Icons.add),
+              label: const Text('Add new category'),
+            ),
+          ),
+          if (_showNewCategoryField) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: _buildTextField(
+                    controller: _newCategoryController,
+                    label: 'New Category',
+                    hint: 'e.g. Adventure',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _addNewCategory,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 12),
           _buildTextField(
             controller: _locationController,
@@ -575,13 +1000,30 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             hint: 'Tell travelers what to expect...',
             maxLines: 4,
           ),
+          const SizedBox(height: 12),
+          _buildImagePickerField(),
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _publishEvent,
-              icon: const Icon(Icons.add_circle_outline),
-              label: const Text('Publish Event'),
+              onPressed: _isPublishing ? null : _publishEvent,
+              icon: _isPublishing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.add_circle_outline),
+              label: Text(
+                _isPublishing
+                    ? 'Publishing...'
+                    : isEditing
+                        ? 'Update Event'
+                        : 'Publish Event',
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
@@ -709,6 +1151,84 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     );
   }
 
+  Widget _buildImagePickerField() {
+    final previewImage =
+        _newEventImageRef ?? _fallbackImageRefForCategory(_newEventCategory);
+    final pickedImageFile = _newEventImageFile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Event Image',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          onPressed: _pickEventImage,
+          icon: const Icon(Icons.photo_library_outlined),
+          label: Text(
+            pickedImageFile == null
+                ? 'Select from album'
+                : 'Change image',
+          ),
+        ),
+        if (pickedImageFile != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            pickedImageFile.name,
+            style: const TextStyle(color: Colors.black54),
+          ),
+        ],
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String?>(
+          value: _newEventImageRef,
+          hint: const Text('Use category default'),
+          items: _eventImageOptions
+              .map(
+                (item) => DropdownMenuItem<String?>(
+                  value: item,
+                  child: Text(_imageLabelFromPath(item)),
+                ),
+              )
+              .toList(),
+          onChanged: (value) => setState(() {
+            _newEventImageRef = value;
+            _newEventImageFile = null;
+          }),
+          decoration: InputDecoration(
+            filled: true,
+            fillColor: const Color(0xFFF9FAFB),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          height: 160,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF9FAFB),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: pickedImageFile != null
+                ? Image.file(File(pickedImageFile.path), fit: BoxFit.cover)
+                : previewImage == null
+                    ? const Center(
+                        child: Text(
+                          'No image selected',
+                          style: TextStyle(color: Colors.black45),
+                        ),
+                      )
+                    : _buildEventImage(previewImage, fit: BoxFit.cover),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildEmptyState({
     required IconData icon,
     required String title,
@@ -755,6 +1275,9 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
   }
 
   Widget _buildBottomNav() {
+    if (!_isLoggedIn) {
+      return const SizedBox.shrink();
+    }
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
@@ -776,18 +1299,28 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             isActive: _view == EventView.explore || _view == EventView.detail,
             onTap: () => _selectView(EventView.explore),
           ),
+          if (_isOrganizer)
+            _buildNavItem(
+              icon: Icons.settings,
+              label: 'Manage',
+              isActive: _view == EventView.manage ||
+                  _view == EventView.organize ||
+                  _view == EventView.edit,
+              onTap: () => _selectView(EventView.manage),
+            )
+          else
+            _buildNavItem(
+              icon: Icons.confirmation_number,
+              label: 'My Tickets',
+              isActive: _view == EventView.tickets,
+              onTap: () => _selectView(EventView.tickets),
+              badgeCount: _tickets.length,
+            ),
           _buildNavItem(
-            icon: Icons.confirmation_number,
-            label: 'My Tickets',
-            isActive: _view == EventView.tickets,
-            onTap: () => _selectView(EventView.tickets),
-            badgeCount: _tickets.length,
-          ),
-          _buildNavItem(
-            icon: Icons.add_circle_outline,
-            label: 'Organize',
-            isActive: _view == EventView.organize,
-            onTap: () => _selectView(EventView.organize),
+            icon: Icons.logout,
+            label: 'Logout',
+            isActive: false,
+            onTap: _logout,
           ),
         ],
       ),

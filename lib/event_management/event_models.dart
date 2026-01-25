@@ -1,6 +1,16 @@
 part of 'event_management.dart';
 
-enum EventView { explore, detail, tickets, organize }
+enum EventView {
+  auth,
+  organizerLogin,
+  explore,
+  detail,
+  tickets,
+  manage,
+  profile,
+  organize,
+  edit
+}
 
 class EventModel {
   EventModel({
@@ -12,7 +22,8 @@ class EventModel {
     required this.category,
     required this.description,
     required this.imageUrl,
-    required this.organizer,
+    required this.organizerId,
+    required this.organizerName,
   });
 
   final String id;
@@ -23,7 +34,8 @@ class EventModel {
   final String category;
   final String description;
   final String imageUrl;
-  final String organizer;
+  final String organizerId;
+  final String organizerName;
 }
 
 class TicketModel {

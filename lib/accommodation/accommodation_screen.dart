@@ -11,7 +11,9 @@ class AccommodationScreen extends StatefulWidget {
 
 class _AccommodationScreenState extends State<AccommodationScreen> {
   AccommodationView _currentView = AccommodationView.home;
-  final List<AccommodationItem> _accommodations = List.of(_initialAccommodations);
+  final List<AccommodationItem> _accommodations = List.of(
+    _initialAccommodations,
+  );
   AccommodationItem? _selectedItem;
   final List<BookingItem> _bookings = [];
   String _filter = 'All';
@@ -29,7 +31,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     return _accommodations.where((item) {
       final matchesType = _filter == 'All' || item.type == _filter;
       final searchLower = _searchQuery.toLowerCase();
-      final matchesSearch = item.name.toLowerCase().contains(searchLower) ||
+      final matchesSearch =
+          item.name.toLowerCase().contains(searchLower) ||
           item.location.toLowerCase().contains(searchLower);
       return matchesType && matchesSearch;
     }).toList();
@@ -108,16 +111,16 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           children: [
             Column(
               children: [
-                Expanded(
-                  child: _buildContent(),
-                ),
+                Expanded(child: _buildContent()),
                 if (showNav) _buildBottomNav(),
               ],
             ),
             _NotificationOverlay(
               notifications: _notifications,
-              onDismiss: (id) =>
-                  setState(() => _notifications.removeWhere((n) => n.id == id)),
+              onDismiss:
+                  (id) => setState(
+                    () => _notifications.removeWhere((n) => n.id == id),
+                  ),
             ),
           ],
         ),
@@ -131,7 +134,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         return _HomeView(
           searchQuery: _searchQuery,
           onSearchChanged: (value) => setState(() => _searchQuery = value),
-          onExplore: () => setState(() => _currentView = AccommodationView.explore),
+          onExplore:
+              () => setState(() => _currentView = AccommodationView.explore),
           onQuickCity: (city) {
             setState(() {
               _searchQuery = city;
@@ -150,8 +154,10 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       case AccommodationView.detail:
         return _DetailView(
           item: _selectedItem,
-          onBack: () => setState(() => _currentView = AccommodationView.explore),
-          onBook: () => setState(() => _currentView = AccommodationView.booking),
+          onBack:
+              () => setState(() => _currentView = AccommodationView.explore),
+          onBook:
+              () => setState(() => _currentView = AccommodationView.booking),
         );
       case AccommodationView.booking:
         return _BookingView(
@@ -168,12 +174,14 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         return _TripsView(
           bookings: _bookings,
           onCancel: _handleCancel,
-          onExplore: () => setState(() => _currentView = AccommodationView.explore),
+          onExplore:
+              () => setState(() => _currentView = AccommodationView.explore),
         );
       case AccommodationView.owner:
         return _OwnerView(
           accommodations: _accommodations,
-          onPublish: () => setState(() => _currentView = AccommodationView.publish),
+          onPublish:
+              () => setState(() => _currentView = AccommodationView.publish),
         );
       case AccommodationView.publish:
         return _PublishFormView(
@@ -210,7 +218,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             label: 'Explore',
             icon: Icons.search_rounded,
             active: _currentView == AccommodationView.explore,
-            onTap: () => setState(() => _currentView = AccommodationView.explore),
+            onTap:
+                () => setState(() => _currentView = AccommodationView.explore),
           ),
           _NavButton(
             label: 'Trips',
@@ -312,33 +321,41 @@ class _NotificationOverlay extends StatelessWidget {
       left: 16,
       right: 16,
       child: Column(
-        children: notifications
-            .map(
-              (note) => Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xF21F2937),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        note.message,
-                        style: const TextStyle(color: Colors.white),
-                      ),
+        children:
+            notifications
+                .map(
+                  (note) => Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                    GestureDetector(
-                      onTap: () => onDismiss(note.id),
-                      child: const Icon(Icons.close, size: 18, color: Colors.white54),
+                    decoration: BoxDecoration(
+                      color: const Color(0xF21F2937),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white24),
                     ),
-                  ],
-                ),
-              ),
-            )
-            .toList(),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            note.message,
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => onDismiss(note.id),
+                          child: const Icon(
+                            Icons.close,
+                            size: 18,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
       ),
     );
   }
@@ -520,7 +537,10 @@ class _ExploreView extends StatelessWidget {
                 children: [
                   IconButton(
                     onPressed: onBack,
-                    icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   const Text(
@@ -556,132 +576,154 @@ class _ExploreView extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: items.isEmpty
-              ? _EmptyState(
-                  onClear: () => onFilterChanged('All'),
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return GestureDetector(
-                      onTap: () => onOpenDetail(item),
-                      child: _CardContainer(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Stack(
-                                children: [
-                                  AspectRatio(
-                                    aspectRatio: 16 / 9,
-                                    child: Image.network(
-                                      item.image,
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    top: 12,
-                                    right: 12,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.9),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.star, size: 14, color: Colors.amber),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            item.rating.toStringAsFixed(1),
-                                            style: const TextStyle(fontWeight: FontWeight.bold),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    bottom: 12,
-                                    left: 12,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF2563EB),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        item.type.toUpperCase(),
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        item.name,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          const Icon(Icons.location_on, size: 14, color: Colors.black54),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            item.location,
-                                            style: const TextStyle(color: Colors.black54),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
+          child:
+              items.isEmpty
+                  ? _EmptyState(onClear: () => onFilterChanged('All'))
+                  : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      return GestureDetector(
+                        onTap: () => onOpenDetail(item),
+                        child: _CardContainer(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(16),
+                                child: Stack(
                                   children: [
-                                    Text(
-                                      'RM${item.price.toStringAsFixed(0)}',
-                                      style: const TextStyle(
-                                        color: Color(0xFF2563EB),
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 18,
+                                    AspectRatio(
+                                      aspectRatio: 16 / 9,
+                                      child: Image.network(
+                                        item.image,
+                                        fit: BoxFit.cover,
                                       ),
                                     ),
-                                    const Text(
-                                      'per night',
-                                      style: TextStyle(fontSize: 10, color: Colors.black38),
+                                    Positioned(
+                                      top: 12,
+                                      right: 12,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.9),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.star,
+                                              size: 14,
+                                              color: Colors.amber,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              item.rating.toStringAsFixed(1),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      bottom: 12,
+                                      left: 12,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF2563EB),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          item.type.toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ],
-                            ),
-                          ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.name,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            const Icon(
+                                              Icons.location_on,
+                                              size: 14,
+                                              color: Colors.black54,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              item.location,
+                                              style: const TextStyle(
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'RM${item.price.toStringAsFixed(0)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFF2563EB),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                      const Text(
+                                        'per night',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Colors.black38,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
         ),
       ],
     );
@@ -750,7 +792,11 @@ class _DetailView extends StatelessWidget {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                const Icon(Icons.location_on, size: 16, color: Color(0xFF2563EB)),
+                                const Icon(
+                                  Icons.location_on,
+                                  size: 16,
+                                  color: Color(0xFF2563EB),
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   item!.location,
@@ -762,7 +808,10 @@ class _DetailView extends StatelessWidget {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFE0F2FE),
                           borderRadius: BorderRadius.circular(12),
@@ -796,22 +845,31 @@ class _DetailView extends StatelessWidget {
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
-                    children: item!.facilities
-                        .map(
-                          (fac) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF3F4F6),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: const Color(0xFFE5E7EB)),
-                            ),
-                            child: Text(
-                              fac,
-                              style: const TextStyle(fontSize: 12, color: Colors.black54),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                    children:
+                        item!.facilities
+                            .map(
+                              (fac) => Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: const Color(0xFFE5E7EB),
+                                  ),
+                                ),
+                                child: Text(
+                                  fac,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                   ),
                   const SizedBox(height: 16),
                   const Text(
@@ -876,7 +934,10 @@ class _DetailView extends StatelessWidget {
                   onPressed: onBook,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 28,
+                      vertical: 14,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -936,7 +997,12 @@ class _BookingView extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: Image.network(item!.image, width: 88, height: 88, fit: BoxFit.cover),
+                child: Image.network(
+                  item!.image,
+                  width: 88,
+                  height: 88,
+                  fit: BoxFit.cover,
+                ),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -950,7 +1016,10 @@ class _BookingView extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       item!.location,
-                      style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Text(
@@ -1023,19 +1092,20 @@ class _BookingView extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
           ),
-          child: isProcessing
-              ? const SizedBox(
-                  height: 18,
-                  width: 18,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
+          child:
+              isProcessing
+                  ? const SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                  : const Text(
+                    'Continue Payment',
+                    style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                )
-              : const Text(
-                  'Continue Payment',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
         ),
         const SizedBox(height: 12),
         const Center(
@@ -1097,7 +1167,10 @@ class _TripsView extends StatelessWidget {
                           ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFDCFCE7),
                             borderRadius: BorderRadius.circular(8),
@@ -1135,29 +1208,43 @@ class _TripsView extends StatelessWidget {
                             children: [
                               Text(
                                 book.accommodation.name,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                               const SizedBox(height: 4),
                               Row(
                                 children: [
-                                  const Icon(Icons.location_on, size: 12, color: Colors.black54),
+                                  const Icon(
+                                    Icons.location_on,
+                                    size: 12,
+                                    color: Colors.black54,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     book.accommodation.location,
-                                    style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.black54,
+                                    ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 8),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'Check-in',
-                                        style: TextStyle(fontSize: 9, color: Colors.black45),
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.black45,
+                                        ),
                                       ),
                                       Text(
                                         book.checkIn,
@@ -1173,7 +1260,10 @@ class _TripsView extends StatelessWidget {
                                     children: [
                                       const Text(
                                         'Paid',
-                                        style: TextStyle(fontSize: 9, color: Colors.black45),
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          color: Colors.black45,
+                                        ),
                                       ),
                                       Text(
                                         'RM${book.accommodation.price.toStringAsFixed(0)}',
@@ -1195,33 +1285,38 @@ class _TripsView extends StatelessWidget {
                   ),
                   TextButton.icon(
                     onPressed: () => onCancel(book.bookingId),
-                    icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 16,
+                      color: Colors.redAccent,
+                    ),
                     label: const Text(
                       'Cancel Booking',
-                      style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ],
               ),
             );
-          }).toList(),
+          }),
       ],
     );
   }
 }
 
 class _OwnerView extends StatelessWidget {
-  const _OwnerView({
-    required this.accommodations,
-    required this.onPublish,
-  });
+  const _OwnerView({required this.accommodations, required this.onPublish});
 
   final List<AccommodationItem> accommodations;
   final VoidCallback onPublish;
 
   @override
   Widget build(BuildContext context) {
-    final listings = accommodations.where((a) => a.id > 4 || a.id == 1).toList();
+    final listings =
+        accommodations.where((a) => a.id > 4 || a.id == 1).toList();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
       children: [
@@ -1251,7 +1346,11 @@ class _OwnerView extends StatelessWidget {
             color: const Color(0xFF2563EB),
             borderRadius: BorderRadius.circular(24),
             boxShadow: const [
-              BoxShadow(color: Color(0x22000000), blurRadius: 14, offset: Offset(0, 8)),
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 14,
+                offset: Offset(0, 8),
+              ),
             ],
           ),
           child: Row(
@@ -1260,11 +1359,18 @@ class _OwnerView extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  Text('Active Bookings', style: TextStyle(color: Colors.white70)),
+                  Text(
+                    'Active Bookings',
+                    style: TextStyle(color: Colors.white70),
+                  ),
                   SizedBox(height: 6),
                   Text(
                     '12',
-                    style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   SizedBox(height: 6),
                   Text(
@@ -1273,7 +1379,11 @@ class _OwnerView extends StatelessWidget {
                   ),
                 ],
               ),
-              const Icon(Icons.apartment_rounded, color: Colors.white24, size: 40),
+              const Icon(
+                Icons.apartment_rounded,
+                color: Colors.white24,
+                size: 40,
+              ),
             ],
           ),
         ),
@@ -1282,8 +1392,14 @@ class _OwnerView extends StatelessWidget {
           onPressed: onPublish,
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 20),
-            side: const BorderSide(color: Color(0xFFE5E7EB), style: BorderStyle.solid, width: 1.4),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            side: const BorderSide(
+              color: Color(0xFFE5E7EB),
+              style: BorderStyle.solid,
+              width: 1.4,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
           ),
           child: Column(
             children: const [
@@ -1294,7 +1410,10 @@ class _OwnerView extends StatelessWidget {
               SizedBox(height: 8),
               Text(
                 'Publish New Accommodation',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black54,
+                ),
               ),
             ],
           ),
@@ -1318,7 +1437,12 @@ class _OwnerView extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
-                  child: Image.network(item.image, width: 64, height: 64, fit: BoxFit.cover),
+                  child: Image.network(
+                    item.image,
+                    width: 64,
+                    height: 64,
+                    fit: BoxFit.cover,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1331,11 +1455,16 @@ class _OwnerView extends StatelessWidget {
                           Expanded(
                             child: Text(
                               item.name,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFFDCFCE7),
                               borderRadius: BorderRadius.circular(8),
@@ -1363,9 +1492,21 @@ class _OwnerView extends StatelessWidget {
                       const SizedBox(height: 6),
                       Row(
                         children: const [
-                          Text('5 Bookings', style: TextStyle(fontSize: 10, color: Colors.black45)),
+                          Text(
+                            '5 Bookings',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.black45,
+                            ),
+                          ),
                           SizedBox(width: 12),
-                          Text('4.8 Rating', style: TextStyle(fontSize: 10, color: Colors.black45)),
+                          Text(
+                            '4.8 Rating',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.black45,
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -1374,17 +1515,14 @@ class _OwnerView extends StatelessWidget {
               ],
             ),
           );
-        }).toList(),
+        }),
       ],
     );
   }
 }
 
 class _PublishFormView extends StatefulWidget {
-  const _PublishFormView({
-    required this.onBack,
-    required this.onPublish,
-  });
+  const _PublishFormView({required this.onBack, required this.onPublish});
 
   final VoidCallback onBack;
   final ValueChanged<NewPropertyForm> onPublish;
@@ -1413,11 +1551,12 @@ class _PublishFormViewState extends State<_PublishFormView> {
 
   void _submit() {
     final price = double.tryParse(_priceController.text.trim()) ?? 0;
-    final facilities = _facilitiesController.text
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
+    final facilities =
+        _facilitiesController.text
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
     widget.onPublish(
       NewPropertyForm(
         name: _nameController.text.trim(),
@@ -1533,7 +1672,9 @@ class _PublishFormViewState extends State<_PublishFormView> {
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF2563EB),
             padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
           child: const Text(
             'Publish Property',
@@ -1677,10 +1818,7 @@ class _RuleItem extends StatelessWidget {
         const Icon(Icons.circle, size: 6, color: Colors.black38),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(color: Colors.black54),
-          ),
+          child: Text(text, style: const TextStyle(color: Colors.black54)),
         ),
       ],
     );
@@ -1727,10 +1865,7 @@ class _EmptyState extends StatelessWidget {
             const Icon(Icons.info_outline, size: 40, color: Colors.black26),
             const SizedBox(height: 8),
             const Text('No accommodations found matching filters.'),
-            TextButton(
-              onPressed: onClear,
-              child: const Text('Clear Filters'),
-            ),
+            TextButton(onPressed: onClear, child: const Text('Clear Filters')),
           ],
         ),
       ),
@@ -1751,10 +1886,7 @@ class _EmptyTrips extends StatelessWidget {
         const Icon(Icons.explore, size: 50, color: Colors.black26),
         const SizedBox(height: 12),
         const Text('No active bookings found.'),
-        TextButton(
-          onPressed: onExplore,
-          child: const Text('Start exploring'),
-        ),
+        TextButton(onPressed: onExplore, child: const Text('Start exploring')),
       ],
     );
   }
@@ -1781,7 +1913,10 @@ class _NavButton extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: active ? const Color(0xFF2563EB) : Colors.black38),
+            Icon(
+              icon,
+              color: active ? const Color(0xFF2563EB) : Colors.black38,
+            ),
             const SizedBox(height: 4),
             Text(
               label.toUpperCase(),
@@ -1808,7 +1943,15 @@ const List<AccommodationItem> _initialAccommodations = [
     rating: 4.8,
     description:
         'A breathtaking view of the Petronas Twin Towers with high-end amenities and infinity pool access. This suite offers a master bedroom with a king-sized bed, a modern living area, and a private balcony overlooking the city skyline. Guests also enjoy 24-hour concierge service and premium lounge access.',
-    facilities: ['WiFi', 'Pool', 'Gym', 'AirCon', 'Kitchen', 'Bathtub', 'Parking'],
+    facilities: [
+      'WiFi',
+      'Pool',
+      'Gym',
+      'AirCon',
+      'Kitchen',
+      'Bathtub',
+      'Parking',
+    ],
     image:
         'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80',
   ),
