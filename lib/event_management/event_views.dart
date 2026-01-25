@@ -192,6 +192,8 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
         return _buildExploreView();
       case EventView.detail:
         return _buildDetailView();
+      case EventView.payment:
+        return _buildPaymentView();
       case EventView.tickets:
         return _buildTicketsView();
       case EventView.manage:
@@ -288,6 +290,13 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
   }
 
   Widget _buildEventCard(EventModel event) {
+    final remaining = event.ticketsRemaining;
+    final isSoldOut = remaining != null && remaining <= 0;
+    final total = event.ticketTotal;
+    final ticketLabel = _ticketAvailabilityLabel(
+      remaining: remaining,
+      total: total,
+    );
     return GestureDetector(
       onTap: () => _openEvent(event),
       child: Container(
@@ -306,12 +315,40 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: _buildEventImage(event.imageUrl, fit: BoxFit.cover),
-              ),
+            Stack(
+              children: [
+                ClipRRect(
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: _buildEventImage(event.imageUrl, fit: BoxFit.cover),
+                  ),
+                ),
+                if (isSoldOut)
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'Sold Out',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             Padding(
               padding: const EdgeInsets.all(16),
@@ -326,6 +363,16 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                     ),
                   ),
                   const SizedBox(height: 8),
+                  if (remaining != null) ...[
+                    Text(
+                      ticketLabel,
+                      style: TextStyle(
+                        color: isSoldOut ? Colors.red : Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   Row(
                     children: [
                       const Icon(Icons.location_on, size: 16, color: Colors.red),
@@ -374,6 +421,13 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     if (event == null) {
       return const SizedBox.shrink();
     }
+    final remaining = event.ticketsRemaining;
+    final isSoldOut = remaining != null && remaining <= 0;
+    final total = event.ticketTotal;
+    final ticketLabel = _ticketAvailabilityLabel(
+      remaining: remaining,
+      total: total,
+    );
 
     return SingleChildScrollView(
       child: Column(
@@ -423,6 +477,12 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                 ),
                 const SizedBox(height: 12),
                 _buildDetailRow(
+                  icon: Icons.confirmation_number,
+                  label: 'TICKETS',
+                  value: ticketLabel,
+                ),
+                const SizedBox(height: 12),
+                _buildDetailRow(
                   icon: Icons.location_on,
                   label: 'LOCATION',
                   value: event.location,
@@ -442,6 +502,16 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   Text(
                     'Organized by ${event.organizerName}',
                     style: const TextStyle(color: Colors.black45),
+                  ),
+                ],
+                if (remaining != null && isSoldOut) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Sold Out',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -475,16 +545,22 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () => _joinEvent(event),
+                    onPressed: isSoldOut ? null : () => _joinEvent(event),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      backgroundColor: Colors.blue,
+                      backgroundColor: isSoldOut ? Colors.grey : Colors.blue,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
                     ),
-                    child: Text(event.price > 0 ? 'Buy Ticket' : 'Register Now'),
+                    child: Text(
+                      isSoldOut
+                          ? 'Sold Out'
+                          : event.price > 0
+                              ? 'Buy Ticket'
+                              : 'Register Now',
+                    ),
                   ),
                 ),
               ],
@@ -529,24 +605,131 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     );
   }
 
+  String _ticketAvailabilityLabel({int? remaining, int? total}) {
+    if (remaining == null && total == null) {
+      return 'Unlimited';
+    }
+    if (remaining == null && total != null) {
+      return '$total total';
+    }
+    if (remaining != null && total == null) {
+      return '$remaining available';
+    }
+    return '$remaining / $total available';
+  }
+
   Widget _buildTicketsView() {
-    if (_tickets.isEmpty) {
+    return StreamBuilder<List<TicketModel>>(
+      stream: _ticketsStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return _buildEmptyState(
+            icon: Icons.error_outline,
+            title: 'Unable to load tickets.',
+          );
+        }
+        final tickets = snapshot.data ?? [];
+        if (tickets.isEmpty) {
+          return _buildEmptyState(
+            icon: Icons.confirmation_number,
+            title: 'No Active Tickets',
+            subtitle: 'Join events from the explore page to see them here.',
+            actionLabel: 'Explore Events',
+            onAction: () => _selectView(EventView.explore),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: tickets.length,
+          itemBuilder: (context, index) {
+            final ticket = tickets[index];
+            return _buildTicketCard(ticket);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildPaymentView() {
+    final event = _pendingPaymentEvent;
+    if (event == null) {
       return _buildEmptyState(
-        icon: Icons.confirmation_number,
-        title: 'No Active Tickets',
-        subtitle: 'Join events from the explore page to see them here.',
-        actionLabel: 'Explore Events',
+        icon: Icons.payment,
+        title: 'No payment in progress.',
+        actionLabel: 'Back to Explore',
         onAction: () => _selectView(EventView.explore),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: _tickets.length,
-      itemBuilder: (context, index) {
-        final ticket = _tickets[index];
-        return _buildTicketCard(ticket);
-      },
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: _cancelPayPalCheckout,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'Pay with PayPal',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Card(
+            child: ListTile(
+              title: Text(event.name),
+              subtitle: Text(event.location),
+              trailing: Text(
+                'RM ${event.price.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: _paymentApprovalUrl == null
+              ? const Center(child: CircularProgressIndicator())
+              : ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: WebViewWidget(
+                    controller: WebViewController()
+                      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                      ..setNavigationDelegate(
+                        NavigationDelegate(
+                          onNavigationRequest: (request) {
+                            final url = request.url;
+                            if (url.startsWith(_paypalReturnUrl)) {
+                              _capturePayPalOrder();
+                              return NavigationDecision.prevent;
+                            }
+                            if (url.startsWith(_paypalCancelUrl)) {
+                              _cancelPayPalCheckout();
+                              return NavigationDecision.prevent;
+                            }
+                            return NavigationDecision.navigate;
+                          },
+                        ),
+                      )
+                      ..loadRequest(Uri.parse(_paymentApprovalUrl!)),
+                  ),
+                ),
+        ),
+        if (_isCapturingPayment)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('Capturing payment...'),
+          ),
+      ],
     );
   }
 
@@ -813,7 +996,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   ),
                 ),
                 IconButton(
-                  onPressed: () => _cancelTicket(ticket.ticketId),
+                  onPressed: () => _cancelTicket(ticket),
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                 ),
               ],
@@ -999,6 +1182,25 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             label: 'Description',
             hint: 'Tell travelers what to expect...',
             maxLines: 4,
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: _ticketTotalController,
+            label: 'Total Tickets',
+            hint: 'Leave blank for unlimited',
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 12),
+          _buildTextField(
+            controller: _ticketRemainingController,
+            label: 'Remaining Tickets',
+            hint: 'Leave blank to auto-fill from total',
+            keyboardType: TextInputType.number,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Remaining must be ≤ total. Leave empty to auto-fill.',
+            style: TextStyle(color: Colors.black45),
           ),
           const SizedBox(height: 12),
           _buildImagePickerField(),

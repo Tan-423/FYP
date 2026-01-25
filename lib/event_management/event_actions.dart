@@ -6,6 +6,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
 
   final CollectionReference<Map<String, dynamic>> _eventsRef =
       FirebaseFirestore.instance.collection('Event');
+  final CollectionReference<Map<String, dynamic>> _paymentsRef =
+      FirebaseFirestore.instance.collection('Payments');
+  final CollectionReference<Map<String, dynamic>> _ticketsRef =
+      FirebaseFirestore.instance.collection('Tickets');
 
   final List<TicketModel> _tickets = [];
 
@@ -14,6 +18,9 @@ mixin EventManagementActions on State<EventManagementScreen> {
   final TextEditingController _locationController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _ticketTotalController = TextEditingController();
+  final TextEditingController _ticketRemainingController =
+      TextEditingController();
   final TextEditingController _organizerEmailController =
       TextEditingController();
   final TextEditingController _organizerPasswordController =
@@ -33,6 +40,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
   bool _showNewCategoryField = false;
   bool _isAuthenticating = false;
   bool _isUpdatingProfile = false;
+  bool _isCreatingPayment = false;
+  bool _isCapturingPayment = false;
 
   final List<String> _categories = ['All', 'Food', 'Culture', 'Music'];
   final List<String> _eventImageOptions = [
@@ -46,6 +55,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
   bool _isPublishing = false;
   String? _editingEventId;
   String? _editingEventImageUrl;
+  int? _editingEventTicketTotal;
+  int? _editingEventTicketsRemaining;
   String? _currentUserRole;
   String? _currentUserId;
   String _currentUserName = 'Guest';
@@ -53,6 +64,18 @@ mixin EventManagementActions on State<EventManagementScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final CollectionReference<Map<String, dynamic>> _organizersRef =
       FirebaseFirestore.instance.collection('Organizer');
+
+  // TODO: Replace with your Cloud Function / backend base URL.
+  final String _paypalBaseUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net';
+  final String _paypalReturnUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net/paypalSuccess';
+  final String _paypalCancelUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net/paypalCancel';
+
+  EventModel? _pendingPaymentEvent;
+  String? _paymentApprovalUrl;
+  String? _paymentOrderId;
 
   String get _fallbackImageUrl => _defaultEventImageUrl;
   bool get _isOrganizer => _currentUserRole == 'organizer';
@@ -69,6 +92,22 @@ mixin EventManagementActions on State<EventManagementScreen> {
       }
       return events;
     });
+  }
+
+  Stream<List<TicketModel>> _ticketsStream() {
+    final userId = _currentUserId ?? 'guest';
+    return _ticketsRef.where('UserId', isEqualTo: userId).snapshots().map(
+      (snapshot) {
+        final tickets = <TicketModel>[];
+        for (final doc in snapshot.docs) {
+          final ticket = _ticketFromDoc(doc);
+          if (ticket != null) {
+            tickets.add(ticket);
+          }
+        }
+        return tickets;
+      },
+    );
   }
 
   EventModel? _eventFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -103,6 +142,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
         _asString(normalized['organizer']) ??
         _asString(data['Organizer']) ??
         '';
+    final ticketTotal = _asInt(normalized['tickettotal']) ??
+        _asInt(data['TicketTotal']) ??
+        _asInt(normalized['totaltickets']) ??
+        _asInt(data['TotalTickets']);
+    final ticketsRemaining = _asInt(normalized['ticketsremaining']) ??
+        _asInt(data['TicketsRemaining']) ??
+        _asInt(normalized['remainingtickets']) ??
+        _asInt(data['RemainingTickets']) ??
+        ticketTotal;
     return EventModel(
       id: _asString(normalized['id']) ?? _asString(data['ID']) ?? doc.id,
       name: name.trim().isEmpty ? 'Untitled Event' : name,
@@ -117,7 +165,107 @@ mixin EventManagementActions on State<EventManagementScreen> {
       organizerId: organizerId,
       organizerName:
           organizerName.trim().isEmpty ? 'WanderEase' : organizerName,
+      ticketTotal: ticketTotal,
+      ticketsRemaining: ticketsRemaining,
     );
+  }
+
+  TicketModel? _ticketFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    if (data == null) {
+      return null;
+    }
+    final normalized = _normalizedKeys(data);
+    final eventId =
+        _asString(normalized['eventid']) ?? _asString(data['EventId']) ?? '';
+    final eventLocation = _asString(normalized['eventlocation']) ??
+        _asString(data['EventLocation']) ??
+        _asString(normalized['location']) ??
+        _asString(data['Location']);
+    final eventDate = _asString(normalized['eventdate']) ??
+        _asString(data['EventDate']) ??
+        _asString(normalized['date']) ??
+        _asString(data['Date']);
+    final eventImageUrl = _asString(normalized['eventimageurl']) ??
+        _asString(data['EventImageUrl']) ??
+        _asString(normalized['imageurl']) ??
+        _asString(data['ImageUrl']);
+    final eventName = _asString(normalized['eventname']) ??
+        _asString(data['EventName']) ??
+        _asString(normalized['name']) ??
+        _asString(data['Name']);
+    final eventCategory = _asString(normalized['eventcategory']) ??
+        _asString(data['EventCategory']) ??
+        _asString(normalized['category']) ??
+        _asString(data['Category']);
+    final organizerId = _asString(normalized['organizerid']) ??
+        _asString(data['OrganizerId']) ??
+        _asString(normalized['organizerid']) ??
+        _asString(data['OrganizerID']);
+    final organizerName = _asString(normalized['organizername']) ??
+        _asString(data['OrganizerName']) ??
+        _asString(normalized['organizer']) ??
+        _asString(data['Organizer']);
+
+    if (eventId.isNotEmpty &&
+        (eventLocation == null ||
+            eventDate == null ||
+            eventImageUrl == null ||
+            eventName == null)) {
+      _backfillTicketEventData(ticketId: doc.id, eventId: eventId);
+    }
+
+    final event = EventModel(
+      id: eventId,
+      name: eventName ?? 'Untitled Event',
+      location: eventLocation ?? 'Location TBC',
+      date: eventDate ?? '',
+      price: _asDouble(normalized['price'] ?? data['Price']),
+      category: eventCategory ?? '',
+      description: _asString(normalized['eventdescription']) ??
+          _asString(data['EventDescription']) ??
+          '',
+      imageUrl: eventImageUrl ?? _fallbackImageUrl,
+      organizerId: organizerId ?? '',
+      organizerName: organizerName ?? '',
+      ticketTotal: _asInt(normalized['tickettotal']) ??
+          _asInt(data['TicketTotal']),
+      ticketsRemaining: _asInt(normalized['ticketsremaining']) ??
+          _asInt(data['TicketsRemaining']),
+    );
+    return TicketModel(
+      ticketId: _asString(normalized['ticketid']) ??
+          _asString(data['TicketId']) ??
+          doc.id,
+      purchaseDate: _asString(normalized['purchasedate']) ??
+          _asString(data['PurchaseDate']) ??
+          '',
+      event: event,
+    );
+  }
+
+  Future<void> _backfillTicketEventData({
+    required String ticketId,
+    required String eventId,
+  }) async {
+    try {
+      final eventDoc = await _eventsRef.doc(eventId).get();
+      final event = _eventFromDoc(eventDoc);
+      if (event == null) {
+        return;
+      }
+      await _ticketsRef.doc(ticketId).set({
+        'EventName': event.name,
+        'EventLocation': event.location,
+        'EventDate': event.date,
+        'EventImageUrl': event.imageUrl,
+        'EventCategory': event.category,
+        'OrganizerId': event.organizerId,
+        'OrganizerName': event.organizerName,
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // Best-effort backfill; ignore failures.
+    }
   }
 
   String? _asString(dynamic value) {
@@ -140,6 +288,16 @@ mixin EventManagementActions on State<EventManagementScreen> {
       return value.toDouble();
     }
     return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  int? _asInt(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value.toString());
   }
 
   String? _fallbackImageRefForCategory(String category) {
@@ -332,17 +490,64 @@ mixin EventManagementActions on State<EventManagementScreen> {
     });
   }
 
-  void _joinEvent(EventModel event) {
+  Future<void> _joinEvent(EventModel event) async {
     final alreadyJoined = _tickets.any((ticket) => ticket.event.id == event.id);
     if (alreadyJoined) {
       _showNotification('You already have a ticket for this event.',
           isError: true);
       return;
     }
+    final remaining = event.ticketsRemaining;
+    if (remaining != null && remaining <= 0) {
+      _showNotification('This event is sold out.', isError: true);
+      return;
+    }
 
+    if (event.price > 0) {
+      _startPayPalCheckout(event);
+      return;
+    }
+    await _confirmTicketPurchase(event);
+  }
+
+  Future<void> _confirmTicketPurchase(
+    EventModel event, {
+    String? paymentId,
+    String? payerEmail,
+  }) async {
+    final reserved = await _reserveTicket(event.id);
+    if (!reserved) {
+      _showNotification('This event is sold out.', isError: true);
+      return;
+    }
     final ticketId = _generateTicketId();
     final purchaseDate =
         DateTime.now().toLocal().toString().split(' ').first;
+    final ticketData = <String, dynamic>{
+      'TicketId': ticketId,
+      'EventId': event.id,
+      'EventName': event.name,
+      'EventLocation': event.location,
+      'EventDate': event.date,
+      'EventImageUrl': event.imageUrl,
+      'EventCategory': event.category,
+      'OrganizerId': event.organizerId,
+      'OrganizerName': event.organizerName,
+      'UserId': _currentUserId ?? 'guest',
+      'PurchaseDate': purchaseDate,
+      'Price': event.price,
+      'PaymentId': paymentId,
+      'PayerEmail': payerEmail,
+      'Status': 'ACTIVE',
+      'CreatedAt': FieldValue.serverTimestamp(),
+    };
+    try {
+      await _ticketsRef.doc(ticketId).set(ticketData);
+    } catch (_) {
+      _showNotification('Failed to save ticket. Please try again.',
+          isError: true);
+      return;
+    }
     setState(() {
       _tickets.add(
         TicketModel(ticketId: ticketId, purchaseDate: purchaseDate, event: event),
@@ -352,11 +557,248 @@ mixin EventManagementActions on State<EventManagementScreen> {
     _showNotification('Successfully joined ${event.name}!');
   }
 
-  void _cancelTicket(String ticketId) {
-    setState(() {
-      _tickets.removeWhere((ticket) => ticket.ticketId == ticketId);
+  Future<bool> _reserveTicket(String eventId) async {
+    final eventRef = _eventsRef.doc(eventId);
+    return FirebaseFirestore.instance.runTransaction<bool>((transaction) async {
+      final snapshot = await transaction.get(eventRef);
+      final data = snapshot.data();
+      if (data == null) {
+        return false;
+      }
+      final normalized = _normalizedKeys(data);
+      final remaining = _asInt(normalized['ticketsremaining']) ??
+          _asInt(data['TicketsRemaining']) ??
+          _asInt(normalized['remainingtickets']) ??
+          _asInt(data['RemainingTickets']);
+      if (remaining == null) {
+        return true;
+      }
+      if (remaining <= 0) {
+        return false;
+      }
+      transaction.update(eventRef, {'TicketsRemaining': remaining - 1});
+      return true;
     });
-    _showNotification('Participation cancelled successfully.');
+  }
+
+  Future<void> _startPayPalCheckout(EventModel event) async {
+    if (_isCreatingPayment) {
+      return;
+    }
+    setState(() {
+      _pendingPaymentEvent = event;
+      _paymentApprovalUrl = null;
+      _paymentOrderId = null;
+      _isCreatingPayment = true;
+      _view = EventView.payment;
+    });
+    try {
+      final response = await http.post(
+        Uri.parse('$_paypalBaseUrl/createPayPalOrder'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'amount': event.price.toStringAsFixed(2),
+          'currency': 'MYR',
+          'return_url': _paypalReturnUrl,
+          'cancel_url': _paypalCancelUrl,
+          'event_id': event.id,
+        }),
+      );
+      debugPrint(
+        'PayPal create response: ${response.statusCode} ${response.body}',
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Order create failed');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final approvalUrl = data['approvalUrl']?.toString();
+      final orderId = data['orderId']?.toString();
+      if (approvalUrl == null || orderId == null) {
+        throw Exception('Missing approval data');
+      }
+      await _paymentsRef.doc(orderId).set({
+        'PaymentId': orderId,
+        'EventId': event.id,
+        'EventName': event.name,
+        'UserId': _currentUserId ?? 'guest',
+        'Amount': event.price,
+        'Currency': 'MYR',
+        'Status': 'CREATED',
+        'CreatedAt': FieldValue.serverTimestamp(),
+      });
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _paymentApprovalUrl = approvalUrl;
+        _paymentOrderId = orderId;
+        _isCreatingPayment = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _isCreatingPayment = false;
+          _view = EventView.detail;
+        });
+      }
+      _showNotification('Unable to start PayPal checkout.',
+          isError: true);
+    }
+  }
+
+  Future<void> _capturePayPalOrder() async {
+    if (_paymentOrderId == null || _isCapturingPayment) {
+      return;
+    }
+    setState(() => _isCapturingPayment = true);
+    try {
+      final response = await http.post(
+        Uri.parse('$_paypalBaseUrl/capturePayPalOrder'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'orderId': _paymentOrderId}),
+      );
+      debugPrint(
+        'PayPal capture response: ${response.statusCode} ${response.body}',
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Capture failed');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final payerEmail = _asString(data['data']?['payer']?['email_address']);
+      if (!mounted) {
+        return;
+      }
+      final event = _pendingPaymentEvent;
+      final orderId = _paymentOrderId;
+      setState(() {
+        _isCapturingPayment = false;
+        _paymentApprovalUrl = null;
+        _paymentOrderId = null;
+        _pendingPaymentEvent = null;
+      });
+      if (event != null) {
+        if (orderId != null) {
+          await _paymentsRef.doc(orderId).set({
+            'PaymentId': orderId,
+            'Status': 'CAPTURED',
+            'CapturedAt': FieldValue.serverTimestamp(),
+            'PayerEmail': payerEmail,
+          }, SetOptions(merge: true));
+        }
+        await _confirmTicketPurchase(event,
+            paymentId: orderId, payerEmail: payerEmail);
+      } else {
+        _selectView(EventView.explore);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isCapturingPayment = false);
+      }
+      _showNotification('Payment not completed. Please try again.',
+          isError: true);
+    }
+  }
+
+  void _cancelPayPalCheckout() {
+    if (_paymentOrderId != null) {
+      _paymentsRef.doc(_paymentOrderId).set({
+        'PaymentId': _paymentOrderId,
+        'Status': 'CANCELLED',
+        'UpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+    setState(() {
+      _pendingPaymentEvent = null;
+      _paymentApprovalUrl = null;
+      _paymentOrderId = null;
+      _isCreatingPayment = false;
+      _isCapturingPayment = false;
+      _view = EventView.detail;
+    });
+    _showNotification('Payment cancelled.', isError: true);
+  }
+
+  Future<bool> _confirmCancelTicket() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cancel ticket?'),
+        content: const Text(
+          'This will delete your ticket and payment record. '
+          'A refund will be processed if applicable.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep ticket'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Cancel ticket'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _cancelTicket(TicketModel ticket) async {
+    final confirmed = await _confirmCancelTicket();
+    if (!confirmed) {
+      return;
+    }
+    final ticketId = ticket.ticketId;
+    try {
+      final ticketDoc = await _ticketsRef.doc(ticketId).get();
+      final data = ticketDoc.data();
+      final normalized = data == null ? <String, dynamic>{} : _normalizedKeys(data);
+      final paymentId =
+          _asString(normalized['paymentid']) ?? _asString(data?['PaymentId']);
+      final eventId =
+          _asString(normalized['eventid']) ?? _asString(data?['EventId']);
+
+      await _ticketsRef.doc(ticketId).delete();
+      if (paymentId != null && paymentId.trim().isNotEmpty) {
+        await _paymentsRef.doc(paymentId).delete();
+      }
+
+      if (eventId != null && eventId.trim().isNotEmpty) {
+        final eventRef = _eventsRef.doc(eventId);
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final snapshot = await transaction.get(eventRef);
+          final eventData = snapshot.data();
+          if (eventData == null) {
+            return;
+          }
+          final normalizedEvent = _normalizedKeys(eventData);
+          final remaining = _asInt(normalizedEvent['ticketsremaining']) ??
+              _asInt(eventData['TicketsRemaining']) ??
+              _asInt(normalizedEvent['remainingtickets']) ??
+              _asInt(eventData['RemainingTickets']);
+          final total = _asInt(normalizedEvent['tickettotal']) ??
+              _asInt(eventData['TicketTotal']) ??
+              _asInt(normalizedEvent['totaltickets']) ??
+              _asInt(eventData['TotalTickets']);
+          if (remaining == null) {
+            return;
+          }
+          final nextRemaining = total == null
+              ? remaining + 1
+              : (remaining + 1 > total ? total : remaining + 1);
+          transaction.update(eventRef, {'TicketsRemaining': nextRemaining});
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          _tickets.removeWhere((item) => item.ticketId == ticketId);
+        });
+      }
+      _showNotification('Ticket cancelled. Refund will be processed.');
+    } catch (_) {
+      _showNotification('Failed to cancel ticket. Please try again.',
+          isError: true);
+    }
   }
 
   void _startNewEvent() {
@@ -370,10 +812,17 @@ mixin EventManagementActions on State<EventManagementScreen> {
     setState(() {
       _editingEventId = event.id;
       _editingEventImageUrl = event.imageUrl;
+      _editingEventTicketTotal = event.ticketTotal;
+      _editingEventTicketsRemaining = event.ticketsRemaining;
       _titleController.text = event.name;
       _locationController.text = event.location;
       _priceController.text = event.price.toStringAsFixed(2);
       _descriptionController.text = event.description;
+      _ticketTotalController.text =
+          event.ticketTotal == null ? '' : event.ticketTotal.toString();
+      _ticketRemainingController.text = event.ticketsRemaining == null
+          ? ''
+          : event.ticketsRemaining.toString();
       _newEventCategory = event.category.isEmpty ? 'Food' : event.category;
       _newEventDate = event.date;
       _newEventImageRef = event.imageUrl.startsWith('http')
@@ -400,12 +849,16 @@ mixin EventManagementActions on State<EventManagementScreen> {
     _locationController.clear();
     _priceController.clear();
     _descriptionController.clear();
+    _ticketTotalController.clear();
+    _ticketRemainingController.clear();
     _newEventCategory = 'Food';
     _newEventDate = '';
     _newEventImageRef = null;
     _newEventImageFile = null;
     _editingEventId = null;
     _editingEventImageUrl = null;
+    _editingEventTicketTotal = null;
+    _editingEventTicketsRemaining = null;
     _showNewCategoryField = false;
     _newCategoryController.clear();
   }
@@ -526,6 +979,38 @@ mixin EventManagementActions on State<EventManagementScreen> {
 
     setState(() => _isPublishing = true);
     final double price = double.tryParse(_priceController.text.trim()) ?? 0;
+    final String ticketTotalText = _ticketTotalController.text.trim();
+    final String ticketRemainingText = _ticketRemainingController.text.trim();
+    final int? ticketTotal =
+        ticketTotalText.isEmpty ? null : int.tryParse(ticketTotalText);
+    final int? ticketRemainingInput = ticketRemainingText.isEmpty
+        ? null
+        : int.tryParse(ticketRemainingText);
+    if (ticketTotalText.isNotEmpty && ticketTotal == null) {
+      _showNotification('Total tickets must be a number.', isError: true);
+      setState(() => _isPublishing = false);
+      return;
+    }
+    if (ticketRemainingText.isNotEmpty && ticketRemainingInput == null) {
+      _showNotification('Remaining tickets must be a number.', isError: true);
+      setState(() => _isPublishing = false);
+      return;
+    }
+    if (ticketRemainingInput != null && ticketTotal == null) {
+      _showNotification('Please enter total tickets first.', isError: true);
+      setState(() => _isPublishing = false);
+      return;
+    }
+    if (ticketTotal != null &&
+        ticketRemainingInput != null &&
+        ticketRemainingInput > ticketTotal) {
+      _showNotification(
+        'Remaining tickets cannot exceed total tickets.',
+        isError: true,
+      );
+      setState(() => _isPublishing = false);
+      return;
+    }
     final DateTime? parsedDate = DateTime.tryParse(_newEventDate);
     final isEditing = _editingEventId != null;
     final eventId =
@@ -547,6 +1032,26 @@ mixin EventManagementActions on State<EventManagementScreen> {
     final resolvedImageUrl = uploadedImageUrl ??
         _editingEventImageUrl ??
         imageRef;
+    int? ticketsRemaining;
+    if (!isEditing) {
+      ticketsRemaining = ticketRemainingInput ?? ticketTotal;
+    } else {
+      if (ticketRemainingInput != null) {
+        ticketsRemaining = ticketRemainingInput;
+      } else if (ticketTotal != null) {
+        final previousTotal = _editingEventTicketTotal;
+        final previousRemaining = _editingEventTicketsRemaining;
+        if (previousTotal != null && previousRemaining != null) {
+          final sold = previousTotal - previousRemaining;
+          final remainingAfter = ticketTotal - sold;
+          ticketsRemaining = remainingAfter < 0 ? 0 : remainingAfter;
+        } else {
+          ticketsRemaining = ticketTotal;
+        }
+      } else {
+        ticketsRemaining = null;
+      }
+    }
     final newEvent = <String, dynamic>{
       'ID': eventId,
       'Name': _titleController.text.trim(),
@@ -556,12 +1061,22 @@ mixin EventManagementActions on State<EventManagementScreen> {
       'Type': _newEventCategory,
       'Description': _descriptionController.text.trim(),
       'ImageUrl': resolvedImageUrl,
+      if (ticketTotal != null) 'TicketTotal': ticketTotal,
+      if (ticketsRemaining != null) 'TicketsRemaining': ticketsRemaining,
+      if (isEditing && ticketTotal == null && ticketRemainingInput == null)
+        'TicketTotal': FieldValue.delete(),
+      if (isEditing && ticketTotal == null && ticketRemainingInput == null)
+        'TicketsRemaining': FieldValue.delete(),
       'OrganizerId': _currentUserId ?? 'org_wanderease',
       'OrganizerName': _currentUserName,
     };
 
     try {
-      await _eventsRef.doc(eventId).set(newEvent);
+      if (isEditing) {
+        await _eventsRef.doc(eventId).set(newEvent, SetOptions(merge: true));
+      } else {
+        await _eventsRef.doc(eventId).set(newEvent);
+      }
       if (!mounted) {
         return;
       }
