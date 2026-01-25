@@ -5,6 +5,7 @@ enum EventView {
   organizerLogin,
   explore,
   detail,
+  payment,
   tickets,
   manage,
   profile,
@@ -24,6 +25,8 @@ class EventModel {
     required this.imageUrl,
     required this.organizerId,
     required this.organizerName,
+    required this.ticketTotal,
+    required this.ticketsRemaining,
   });
 
   final String id;
@@ -36,6 +39,8 @@ class EventModel {
   final String imageUrl;
   final String organizerId;
   final String organizerName;
+  final int? ticketTotal;
+  final int? ticketsRemaining;
 }
 
 class TicketModel {
