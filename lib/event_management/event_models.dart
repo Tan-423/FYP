@@ -54,3 +54,21 @@ class TicketModel {
   final String purchaseDate;
   final EventModel event;
 }
+
+class PaymentRecord {
+  const PaymentRecord({
+    required this.paymentId,
+    required this.eventId,
+    required this.eventName,
+    required this.amount,
+    required this.status,
+    this.createdAt,
+  });
+
+  final String paymentId;
+  final String eventId;
+  final String eventName;
+  final double amount;
+  final String status;
+  final DateTime? createdAt;
+}

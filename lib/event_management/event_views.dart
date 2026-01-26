@@ -619,37 +619,117 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
   }
 
   Widget _buildTicketsView() {
-    return StreamBuilder<List<TicketModel>>(
-      stream: _ticketsStream(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+    return StreamBuilder<List<PaymentRecord>>(
+      stream: _failedPaymentsStream(),
+      builder: (context, failedSnapshot) {
+        if (failedSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snapshot.hasError) {
+        if (failedSnapshot.hasError) {
           return _buildEmptyState(
             icon: Icons.error_outline,
-            title: 'Unable to load tickets.',
+            title: 'Unable to load payments.',
           );
         }
-        final tickets = snapshot.data ?? [];
-        if (tickets.isEmpty) {
-          return _buildEmptyState(
-            icon: Icons.confirmation_number,
-            title: 'No Active Tickets',
-            subtitle: 'Join events from the explore page to see them here.',
-            actionLabel: 'Explore Events',
-            onAction: () => _selectView(EventView.explore),
-          );
-        }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: tickets.length,
-          itemBuilder: (context, index) {
-            final ticket = tickets[index];
-            return _buildTicketCard(ticket);
+        final failedPayments = failedSnapshot.data ?? [];
+        return StreamBuilder<List<TicketModel>>(
+          stream: _ticketsStream(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _buildEmptyState(
+                icon: Icons.error_outline,
+                title: 'Unable to load tickets.',
+              );
+            }
+            final tickets = snapshot.data ?? [];
+            if (tickets.isEmpty && failedPayments.isEmpty) {
+              return _buildEmptyState(
+                icon: Icons.confirmation_number,
+                title: 'No Active Tickets',
+                subtitle: 'Join events from the explore page to see them here.',
+                actionLabel: 'Explore Events',
+                onAction: () => _selectView(EventView.explore),
+              );
+            }
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (failedPayments.isNotEmpty) ...[
+                  const Text(
+                    'Pending/Failed Payments',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  ...failedPayments.map(_buildFailedPaymentCard),
+                  const SizedBox(height: 16),
+                ],
+                if (tickets.isNotEmpty) ...[
+                  const Text(
+                    'My Tickets',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  ...tickets.map(_buildTicketCard),
+                ],
+              ],
+            );
           },
         );
       },
+    );
+  }
+
+  Widget _buildFailedPaymentCard(PaymentRecord payment) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            payment.eventName,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'RM ${payment.amount.toStringAsFixed(2)}',
+            style: const TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Status: ${payment.status}',
+            style: const TextStyle(color: Colors.black45, fontSize: 12),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              if (payment.status != 'CANCELLED') ...[
+                ElevatedButton(
+                  onPressed: () => _retryFailedPayment(payment),
+                  child: const Text('Continue Payment'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => _cancelFailedPayment(payment),
+                  child: const Text('Cancel'),
+                ),
+              ] else
+                TextButton(
+                  onPressed: () => _deletePaymentRecord(payment),
+                  child: const Text('Remove'),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
