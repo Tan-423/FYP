@@ -7,7 +7,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
   final CollectionReference<Map<String, dynamic>> _eventsRef =
       FirebaseFirestore.instance.collection('Event');
   final CollectionReference<Map<String, dynamic>> _paymentsRef =
-      FirebaseFirestore.instance.collection('Payments');
+      FirebaseFirestore.instance.collection('eventpayment');
   final CollectionReference<Map<String, dynamic>> _ticketsRef =
       FirebaseFirestore.instance.collection('Tickets');
 
@@ -108,6 +108,24 @@ mixin EventManagementActions on State<EventManagementScreen> {
         return tickets;
       },
     );
+  }
+
+  Stream<List<PaymentRecord>> _failedPaymentsStream() {
+    final userId = _currentUserId ?? 'guest';
+    return _paymentsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'])
+        .snapshots()
+        .map((snapshot) {
+          final payments = <PaymentRecord>[];
+          for (final doc in snapshot.docs) {
+            final payment = _paymentFromDoc(doc);
+            if (payment != null) {
+              payments.add(payment);
+            }
+          }
+          return payments;
+        });
   }
 
   EventModel? _eventFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -241,6 +259,35 @@ mixin EventManagementActions on State<EventManagementScreen> {
           _asString(data['PurchaseDate']) ??
           '',
       event: event,
+    );
+  }
+
+  PaymentRecord? _paymentFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    if (data == null) {
+      return null;
+    }
+    final normalized = _normalizedKeys(data);
+    final paymentId =
+        _asString(normalized['paymentid']) ?? _asString(data['PaymentId']) ?? doc.id;
+    final eventId =
+        _asString(normalized['eventid']) ?? _asString(data['EventId']) ?? '';
+    if (eventId.isEmpty) {
+      return null;
+    }
+    final eventName =
+        _asString(normalized['eventname']) ?? _asString(data['EventName']) ?? 'Event';
+    final amount = _asDouble(normalized['amount'] ?? data['Amount']);
+    final status =
+        _asString(normalized['status']) ?? _asString(data['Status']) ?? '';
+    final createdAt = (data['CreatedAt'] as Timestamp?)?.toDate();
+    return PaymentRecord(
+      paymentId: paymentId,
+      eventId: eventId,
+      eventName: eventName,
+      amount: amount,
+      status: status,
+      createdAt: createdAt,
     );
   }
 
@@ -581,6 +628,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
     });
   }
 
+  Future<EventModel?> _getEventById(String eventId) async {
+    try {
+      final doc = await _eventsRef.doc(eventId).get();
+      return _eventFromDoc(doc);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _startPayPalCheckout(EventModel event) async {
     if (_isCreatingPayment) {
       return;
@@ -694,9 +750,44 @@ mixin EventManagementActions on State<EventManagementScreen> {
       if (mounted) {
         setState(() => _isCapturingPayment = false);
       }
+      if (_paymentOrderId != null) {
+        _paymentsRef.doc(_paymentOrderId).set({
+          'PaymentId': _paymentOrderId,
+          'Status': 'FAILED',
+          'UpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
       _showNotification('Payment not completed. Please try again.',
           isError: true);
     }
+  }
+
+  Future<void> _retryFailedPayment(PaymentRecord payment) async {
+    final event = await _getEventById(payment.eventId);
+    if (event == null) {
+      _showNotification('Unable to load event for payment.', isError: true);
+      return;
+    }
+    await _paymentsRef.doc(payment.paymentId).set({
+      'PaymentId': payment.paymentId,
+      'Status': 'RETRYING',
+      'UpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    _startPayPalCheckout(event);
+  }
+
+  Future<void> _cancelFailedPayment(PaymentRecord payment) async {
+    await _paymentsRef.doc(payment.paymentId).set({
+      'PaymentId': payment.paymentId,
+      'Status': 'CANCELLED',
+      'UpdatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    _showNotification('Failed payment cancelled.');
+  }
+
+  Future<void> _deletePaymentRecord(PaymentRecord payment) async {
+    await _paymentsRef.doc(payment.paymentId).delete();
+    _showNotification('Order removed from records.');
   }
 
   void _cancelPayPalCheckout() {
