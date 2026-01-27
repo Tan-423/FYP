@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'accommodation_models.dart';
 import 'accommodation_widgets.dart';
 
-class HomeView extends StatelessWidget {
+class HomeView extends StatefulWidget {
   const HomeView({
     required this.searchQuery,
     required this.onSearchChanged,
@@ -18,14 +18,141 @@ class HomeView extends StatelessWidget {
   final ValueChanged<String> onQuickCity;
 
   @override
+  State<HomeView> createState() => _HomeViewState();
+}
+
+class _HomeViewState extends State<HomeView> {
+  DateTimeRange? _dateRange;
+  int _guestCount = 1;
+
+  String _formatDate(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  String _formatDateRange(DateTimeRange? range) {
+    if (range == null) return 'Date';
+    return '${_formatDate(range.start)} - ${_formatDate(range.end)}';
+  }
+
+  Future<void> _pickDateRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+      initialDateRange: _dateRange,
+    );
+    if (picked == null) return;
+    setState(() => _dateRange = picked);
+  }
+
+  Future<void> _pickGuests() async {
+    int tempCount = _guestCount;
+    await showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Guests',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Number of guests'),
+                      Row(
+                        children: [
+                          IconButton(
+                            onPressed:
+                                tempCount > 1
+                                    ? () => setSheetState(() => tempCount -= 1)
+                                    : null,
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                          Text(
+                            '$tempCount',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          IconButton(
+                            onPressed: () => setSheetState(() => tempCount += 1),
+                            icon: const Icon(Icons.add_circle_outline),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: const Text(
+                        'Done',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    if (tempCount != _guestCount) {
+      setState(() => _guestCount = tempCount);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final cities = [
-      'Kuala Lumpur',
-      'Penang',
-      'Langkawi',
-      'Melaka',
-      'Johor Bahru',
-      'Kota Kinabalu',
+    final destinations = [
+      {
+        'city': 'Kuala Lumpur',
+        'image': 'lib/accommodation/destination_image/Kuala Lumpur.jpg',
+      },
+      {
+        'city': 'Penang',
+        'image': 'lib/accommodation/destination_image/Penang.webp',
+      },
+      {
+        'city': 'Langkawi',
+        'image': 'lib/accommodation/destination_image/Langkawi.jpg',
+      },
+      {
+        'city': 'Melaka',
+        'image': 'lib/accommodation/destination_image/Melaka.jpg',
+      },
+      {
+        'city': 'Johor Bahru',
+        'image': 'lib/accommodation/destination_image/Johor Bahru.jpg',
+      },
+      {
+        'city': 'Kota Kinabalu',
+        'image': 'lib/accommodation/destination_image/Kota Kinabalu.jpg',
+      },
     ];
 
     return ListView(
@@ -47,27 +174,71 @@ class HomeView extends StatelessWidget {
               InputField(
                 icon: Icons.location_on_rounded,
                 hint: 'Where are you going?',
-                value: searchQuery,
-                onChanged: onSearchChanged,
+                value: widget.searchQuery,
+                onChanged: widget.onSearchChanged,
               ),
               const SizedBox(height: 12),
               Row(
-                children: const [
+                children: [
                   Expanded(
-                    child: InputField(
-                      icon: Icons.calendar_today_rounded,
-                      hint: 'Date',
-                      value: '',
-                      onChanged: null,
+                    child: GestureDetector(
+                      onTap: _pickDateRange,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              color: Color(0xFF2563EB),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _formatDateRange(_dateRange),
+                                style: const TextStyle(color: Colors.black54),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
-                    child: InputField(
-                      icon: Icons.person_rounded,
-                      hint: '1 Guest',
-                      value: '',
-                      onChanged: null,
+                    child: GestureDetector(
+                      onTap: _pickGuests,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F4F6),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.person_rounded,
+                              color: Color(0xFF2563EB),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '$_guestCount Guest${_guestCount > 1 ? 's' : ''}',
+                                style: const TextStyle(color: Colors.black54),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -76,7 +247,7 @@ class HomeView extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: onExplore,
+                  onPressed: widget.onExplore,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -86,7 +257,10 @@ class HomeView extends StatelessWidget {
                   ),
                   child: const Text(
                     'Search Accommodation',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -100,7 +274,7 @@ class HomeView extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         GridView.builder(
-          itemCount: cities.length,
+          itemCount: destinations.length,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -110,18 +284,17 @@ class HomeView extends StatelessWidget {
             childAspectRatio: 1.1,
           ),
           itemBuilder: (context, index) {
-            final city = cities[index];
+            final destination = destinations[index];
+            final city = destination['city']!;
+            final image = destination['image']!;
             return GestureDetector(
-              onTap: () => onQuickCity(city),
+              onTap: () => widget.onQuickCity(city),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Image.network(
-                      'https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?auto=format&fit=crop&w=400&q=80',
-                      fit: BoxFit.cover,
-                    ),
+                    Image.asset(image, fit: BoxFit.cover),
                     Container(color: Colors.black26),
                     Align(
                       alignment: Alignment.bottomLeft,
@@ -745,7 +918,10 @@ class DetailView extends StatelessWidget {
                   ),
                   child: const Text(
                     'Book Now',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ],
@@ -815,13 +991,13 @@ class _BookingViewState extends State<BookingView> {
         ),
         _RoomTypeOption(
           label: 'Deluxe Room',
-          multiplier: 1.3,
+          multiplier: 1.4,
           description: 'More space + city view',
           available: null,
         ),
         _RoomTypeOption(
           label: 'Suite',
-          multiplier: 1.7,
+          multiplier: 1.9,
           description: 'Separate living area + premium amenities',
           available: null,
         ),
@@ -840,9 +1016,9 @@ class _BookingViewState extends State<BookingView> {
 
   double _multiplierForType(String label) {
     final key = label.toLowerCase();
-    if (key.contains('suite')) return 1.7;
-    if (key.contains('deluxe')) return 1.3;
-    if (key.contains('family')) return 1.4;
+    if (key.contains('suite')) return 1.9;
+    if (key.contains('deluxe')) return 1.4;
+    if (key.contains('family')) return 1.5;
     return 1.0;
   }
 
@@ -930,6 +1106,39 @@ class _BookingViewState extends State<BookingView> {
   }
 
   void _submitPayment(double basePrice) {
+    final name = _guestNameController.text.trim();
+    final email = _guestEmailController.text.trim();
+    
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your full name.')),
+      );
+      return;
+    }
+    
+    // Validate name: no digits allowed
+    if (name.contains(RegExp(r'[0-9]'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Name cannot contain digits.')),
+      );
+      return;
+    }
+    
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email address.')),
+      );
+      return;
+    }
+    
+    // Validate email format
+    final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid email address.')),
+      );
+      return;
+    }
     if (_checkIn == null || _checkOut == null || _nights <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select check-in and check-out dates.')),
@@ -1116,6 +1325,35 @@ class _BookingViewState extends State<BookingView> {
         Text(
           _selectedRoomOption?.description ?? '',
           style: const TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE0F2FE),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF0369A1).withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.info_outline,
+                size: 16,
+                color: Color(0xFF0369A1),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Room Capacity: ${_capacityPerRoom()} guest${_capacityPerRoom() > 1 ? 's' : ''} per room${item.extraBedFee > 0 ? ' (+1 with extra bed)' : ''}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF0369A1),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         const Text(
@@ -1309,7 +1547,10 @@ class _BookingViewState extends State<BookingView> {
                   )
                   : Text(
                     'Pay RM${total.toStringAsFixed(0)}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
         ),
         const SizedBox(height: 12),
@@ -1399,17 +1640,19 @@ class TripsView extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (payment.status != 'CANCELLED') ...[
-                        ElevatedButton(
-                          onPressed: () => onRetryPayment(payment),
-                          child: const Text('Continue Payment'),
+                      ElevatedButton(
+                        onPressed: () => onRetryPayment(payment),
+                        child: Text(
+                          payment.status == 'CANCELLED' ? 'Try Again' : 'Continue Payment',
                         ),
-                        const SizedBox(width: 8),
+                      ),
+                      const SizedBox(width: 8),
+                      if (payment.status != 'CANCELLED')
                         TextButton(
                           onPressed: () => onCancelPayment(payment),
                           child: const Text('Cancel'),
-                        ),
-                      ] else
+                        )
+                      else
                         TextButton(
                           onPressed: () => onDeletePayment(payment),
                           child: const Text('Remove'),
@@ -1711,6 +1954,7 @@ class OwnerView extends StatelessWidget {
     required this.accommodations,
     required this.onPublish,
     required this.onEdit,
+    required this.activeBookings,
     this.ownerId,
     super.key,
   });
@@ -1718,6 +1962,7 @@ class OwnerView extends StatelessWidget {
   final List<AccommodationItem> accommodations;
   final VoidCallback onPublish;
   final ValueChanged<AccommodationItem> onEdit;
+  final int activeBookings;
   final String? ownerId;
 
   @override
@@ -1767,24 +2012,26 @@ class OwnerView extends StatelessWidget {
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
+                children: [
+                  const Text(
                     'Active Bookings',
                     style: TextStyle(color: Colors.white70),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
-                    '12',
-                    style: TextStyle(
+                    '$activeBookings',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: 6),
+                  const SizedBox(height: 6),
                   Text(
-                    'You have 2 new requests today',
-                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                    activeBookings == 0
+                        ? 'No active bookings yet'
+                        : 'Keep an eye on upcoming stays',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                 ],
               ),

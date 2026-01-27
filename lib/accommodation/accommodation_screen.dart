@@ -28,7 +28,6 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   AccommodationView _currentView = AccommodationView.auth;
   AccommodationItem? _selectedItem;
   AccommodationItem? _editingItem;
-  final List<BookingItem> _bookings = [];
   String _filter = 'All';
   String _searchQuery = '';
   final List<NotificationItem> _notifications = [];
@@ -116,6 +115,69 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         });
   }
 
+  Stream<int> _ownerActiveBookingsCount() {
+    final ownerId = _auth.currentUser?.uid;
+    if (ownerId == null) return Stream.value(0);
+    return _bookingsRef
+        .where('OwnerId', isEqualTo: ownerId)
+        .where('Status', isEqualTo: 'Confirmed')
+        .snapshots()
+        .map((snapshot) => snapshot.size);
+  }
+
+  Stream<List<BookingItem>> _userBookingsStream() {
+    final userId = _auth.currentUser?.uid ?? 'guest';
+    return _bookingsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', isEqualTo: 'Confirmed')
+        .snapshots()
+        .asyncMap((snapshot) async {
+          final bookings = <BookingItem>[];
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final accommodationId = data['AccommodationId'] as String?;
+            if (accommodationId == null) continue;
+            
+            final accommodation = await _fetchAccommodationById(accommodationId);
+            if (accommodation == null) continue;
+            
+            final checkInValue = data['CheckIn'];
+            final checkOutValue = data['CheckOut'];
+            final checkIn = checkInValue is Timestamp ? checkInValue.toDate() : null;
+            final checkOut = checkOutValue is Timestamp ? checkOutValue.toDate() : null;
+            
+            if (checkIn == null || checkOut == null) continue;
+            
+            final createdAt = data['CreatedAt'] as Timestamp?;
+            
+            bookings.add(
+              BookingItem(
+                bookingId: data['BookingId'] as String? ?? doc.id,
+                status: data['Status'] as String? ?? 'Confirmed',
+                checkIn: _formatDate(checkIn),
+                checkOut: _formatDate(checkOut),
+                roomType: data['RoomType'] as String? ?? '',
+                roomCount: (data['RoomCount'] as num?)?.toInt() ?? 1,
+                peopleCount: (data['PeopleCount'] as num?)?.toInt() ?? 1,
+                childCount: (data['ChildCount'] as num?)?.toInt() ?? 0,
+                infantCount: (data['InfantCount'] as num?)?.toInt() ?? 0,
+                extraBed: data['ExtraBed'] as bool? ?? false,
+                extraBedFee: (data['ExtraBedFee'] as num?)?.toDouble() ?? 0,
+                totalPaid: (data['TotalPaid'] as num?)?.toDouble() ?? 0,
+                accommodation: accommodation,
+              ),
+            );
+          }
+          // Sort by creation date in memory (newest first)
+          bookings.sort((a, b) {
+            // If we have creation timestamp in the future, use it
+            // For now, sort by booking ID (which includes timestamp)
+            return b.bookingId.compareTo(a.bookingId);
+          });
+          return bookings;
+        });
+  }
+
   void _addNotification(String message) {
     final note = NotificationItem(
       id: DateTime.now().millisecondsSinceEpoch,
@@ -183,6 +245,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           'AccommodationName': item.name,
           'AccommodationLocation': item.location,
           'AccommodationImage': item.image,
+        'OwnerId': item.ownerId,
           'RoomType': request.roomType,
           'CheckIn': Timestamp.fromDate(request.checkIn),
           'CheckOut': Timestamp.fromDate(request.checkOut),
@@ -210,7 +273,6 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       return;
     }
     setState(() {
-      _bookings.add(booking);
       _isProcessing = false;
       _currentView = AccommodationView.trips;
     });
@@ -218,41 +280,66 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   }
 
   Future<void> _handleCancel(String bookingId) async {
-    final targetIndex = _bookings.indexWhere((b) => b.bookingId == bookingId);
-    if (targetIndex == -1) return;
-    final target = _bookings[targetIndex];
     try {
+      // First, fetch the booking data
+      final bookingDoc = await _bookingsRef.doc(bookingId).get();
+      final bookingData = bookingDoc.data();
+      if (bookingData == null) {
+        _addNotification('Booking not found.');
+        return;
+      }
+      
+      final accommodationId = bookingData['AccommodationId'] as String?;
+      final roomType = bookingData['RoomType'] as String?;
+      final roomCount = (bookingData['RoomCount'] as num?)?.toInt() ?? 1;
+      final accommodationName = bookingData['AccommodationName'] as String?;
+      
+      if (accommodationId == null) {
+        _addNotification('Invalid booking: missing accommodation ID.');
+        return;
+      }
+      
+      if (roomType == null) {
+        _addNotification('Invalid booking: missing room type.');
+        return;
+      }
+      
       await _firestore.runTransaction((transaction) async {
+        // STEP 1: Do ALL reads first (Firestore transaction rule)
+        final accommodationRef = _firestore
+            .collection('accommodations')
+            .doc(accommodationId);
+        final accommodationSnap = await transaction.get(accommodationRef);
+        final data = accommodationSnap.data();
+        if (data == null) {
+          throw Exception('Accommodation not found');
+        }
+        
+        // Calculate new room availability
+        final roomTypesRaw = data['roomTypes'];
+        final current =
+            roomTypesRaw is Map
+                ? (roomTypesRaw[roomType] as num?)?.toInt() ?? 0
+                : 0;
+        final next = current + roomCount;
+        
+        // STEP 2: Do ALL writes after reads
         final bookingRef = _bookingsRef.doc(bookingId);
         transaction.update(bookingRef, {
           'Status': 'Cancelled',
           'CancelledAt': FieldValue.serverTimestamp(),
         });
-        final accommodationRef = _firestore
-            .collection('accommodations')
-            .doc(target.accommodation.id);
-        final accommodationSnap = await transaction.get(accommodationRef);
-        final data = accommodationSnap.data();
-        if (data == null) {
-          throw Exception('Accommodation missing');
-        }
-        final roomTypesRaw = data['roomTypes'];
-        final current =
-            roomTypesRaw is Map
-                ? (roomTypesRaw[target.roomType] as num?)?.toInt() ?? 0
-                : 0;
-        final next = current + target.roomCount;
+        
         transaction.update(accommodationRef, {
-          'roomTypes.${target.roomType}': next,
+          'roomTypes.$roomType': next,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       });
-    } catch (_) {
+      _addNotification('Reservation for ${accommodationName ?? 'accommodation'} cancelled.');
+    } catch (e) {
+      print('Error cancelling booking: $e');
       _addNotification('Failed to cancel booking. Please try again.');
-      return;
     }
-    setState(() => _bookings.removeAt(targetIndex));
-    _addNotification('Reservation for ${target.accommodation.name} cancelled.');
   }
 
   Future<void> _handlePublish(NewPropertyForm form) async {
@@ -405,11 +492,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       _addNotification('Unable to load accommodation.');
       return;
     }
-    await _paymentsRef.doc(payment.paymentId).set({
-      'PaymentId': payment.paymentId,
-      'Status': 'RETRYING',
-      'UpdatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    // Delete the old payment record to prevent duplicates
+    await _paymentsRef.doc(payment.paymentId).delete();
+    
     final request = BookingRequest(
       roomType: payment.roomType,
       checkIn: payment.checkIn,
@@ -510,7 +595,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       if (mounted) {
         setState(() {
           _isCreatingPayment = false;
-          _currentView = AccommodationView.booking;
+          _currentView = AccommodationView.trips;
         });
       }
       _addNotification('Unable to start PayPal checkout.');
@@ -575,6 +660,15 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           'UpdatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
+      setState(() {
+        _pendingPaymentItem = null;
+        _pendingBookingRequest = null;
+        _paymentApprovalUrl = null;
+        _paymentOrderId = null;
+        _isCreatingPayment = false;
+        _isCapturingPayment = false;
+        _currentView = AccommodationView.trips;
+      });
       _addNotification('Payment not completed. Please try again.');
     }
   }
@@ -594,9 +688,37 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       _paymentOrderId = null;
       _isCreatingPayment = false;
       _isCapturingPayment = false;
-      _currentView = AccommodationView.booking;
+      _currentView = AccommodationView.trips;
     });
     _addNotification('Payment cancelled.');
+  }
+
+  Future<WebViewController> _initializeWebView() async {
+    // Clear all cookies to force PayPal login every time
+    final cookieManager = WebViewCookieManager();
+    await cookieManager.clearCookies();
+    
+    final controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (request) {
+            final url = request.url;
+            if (url.startsWith(_paypalReturnUrl)) {
+              _capturePayPalOrder();
+              return NavigationDecision.prevent;
+            }
+            if (url.startsWith(_paypalCancelUrl)) {
+              _cancelPayPalCheckout();
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(_paymentApprovalUrl!));
+    
+    return controller;
   }
 
   Future<void> _handleOwnerLogin() async {
@@ -759,8 +881,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           return InfoEmptyState(
             icon: Icons.payment,
             title: 'No payment in progress.',
-            actionLabel: 'Back to Booking',
-            onAction: () => setState(() => _currentView = AccommodationView.booking),
+            actionLabel: 'Back to My Bookings',
+            onAction: () => setState(() => _currentView = AccommodationView.trips),
           );
         }
         return Column(
@@ -799,29 +921,17 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
               child:
                   _paymentApprovalUrl == null
                       ? const Center(child: CircularProgressIndicator())
-                      : ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: WebViewWidget(
-                          controller: WebViewController()
-                            ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                            ..setNavigationDelegate(
-                              NavigationDelegate(
-                                onNavigationRequest: (request) {
-                                  final url = request.url;
-                                  if (url.startsWith(_paypalReturnUrl)) {
-                                    _capturePayPalOrder();
-                                    return NavigationDecision.prevent;
-                                  }
-                                  if (url.startsWith(_paypalCancelUrl)) {
-                                    _cancelPayPalCheckout();
-                                    return NavigationDecision.prevent;
-                                  }
-                                  return NavigationDecision.navigate;
-                                },
-                              ),
-                            )
-                            ..loadRequest(Uri.parse(_paymentApprovalUrl!)),
-                        ),
+                      : FutureBuilder(
+                        future: _initializeWebView(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          return ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: WebViewWidget(controller: snapshot.data!),
+                          );
+                        },
                       ),
             ),
             if (_isCapturingPayment)
@@ -832,27 +942,41 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           ],
         );
       case AccommodationView.trips:
-        return StreamBuilder<List<AccommodationPaymentRecord>>(
-          stream: _failedPaymentsStream(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+        return StreamBuilder<List<BookingItem>>(
+          stream: _userBookingsStream(),
+          builder: (context, bookingsSnapshot) {
+            if (bookingsSnapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             }
-            if (snapshot.hasError) {
+            if (bookingsSnapshot.hasError) {
               return const InfoEmptyState(
                 icon: Icons.error_outline,
-                title: 'Unable to load payments.',
+                title: 'Unable to load bookings.',
               );
             }
-            return TripsView(
-              bookings: _bookings,
-              failedPayments: snapshot.data ?? [],
-              onRetryPayment: _retryFailedPayment,
-              onCancelPayment: _cancelFailedPayment,
-              onDeletePayment: _deletePaymentRecord,
-              onCancel: _handleCancel,
-              onExplore:
-                  () => setState(() => _currentView = AccommodationView.explore),
+            return StreamBuilder<List<AccommodationPaymentRecord>>(
+              stream: _failedPaymentsStream(),
+              builder: (context, paymentsSnapshot) {
+                if (paymentsSnapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (paymentsSnapshot.hasError) {
+                  return const InfoEmptyState(
+                    icon: Icons.error_outline,
+                    title: 'Unable to load payments.',
+                  );
+                }
+                return TripsView(
+                  bookings: bookingsSnapshot.data ?? [],
+                  failedPayments: paymentsSnapshot.data ?? [],
+                  onRetryPayment: _retryFailedPayment,
+                  onCancelPayment: _cancelFailedPayment,
+                  onDeletePayment: _deletePaymentRecord,
+                  onCancel: _handleCancel,
+                  onExplore:
+                      () => setState(() => _currentView = AccommodationView.explore),
+                );
+              },
             );
           },
         );
@@ -889,18 +1013,24 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                         ),
               );
             }
-            return OwnerView(
-              accommodations: snapshot.data ?? [],
-              ownerId: _auth.currentUser?.uid,
-              onEdit: (item) => setState(() {
-                _editingItem = item;
-                _currentView = AccommodationView.publish;
-              }),
-              onPublish:
-                  () => setState(() {
-                    _editingItem = null;
+            return StreamBuilder<int>(
+              stream: _ownerActiveBookingsCount(),
+              builder: (context, countSnapshot) {
+                return OwnerView(
+                  accommodations: snapshot.data ?? [],
+                  ownerId: _auth.currentUser?.uid,
+                  activeBookings: countSnapshot.data ?? 0,
+                  onEdit: (item) => setState(() {
+                    _editingItem = item;
                     _currentView = AccommodationView.publish;
                   }),
+                  onPublish:
+                      () => setState(() {
+                        _editingItem = null;
+                        _currentView = AccommodationView.publish;
+                      }),
+                );
+              },
             );
           },
         );
@@ -948,12 +1078,15 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             onTap:
                 () => setState(() => _currentView = AccommodationView.explore),
           ),
-          NavButton(
-            label: 'Trips',
-            icon: Icons.work_rounded,
-            active: _currentView == AccommodationView.trips,
-            onTap: () => setState(() => _currentView = AccommodationView.trips),
-          ),
+          if (_auth.currentUser == null)
+            NavButton(
+              label: 'Trips',
+              icon: Icons.work_rounded,
+              active: _currentView == AccommodationView.trips,
+              onTap:
+                  () =>
+                      setState(() => _currentView = AccommodationView.trips),
+            ),
           if (!_isGuest)
             NavButton(
               label: 'Owner',
