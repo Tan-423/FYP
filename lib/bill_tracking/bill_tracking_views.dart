@@ -1,8 +1,12 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'bill_tracking_currency_service.dart';
 import 'bill_tracking_models.dart';
 import 'bill_tracking_widgets.dart';
 
@@ -14,6 +18,7 @@ class BillDashboard extends StatelessWidget {
     required this.onSwitchGroup,
     required this.onCreateGroup,
     required this.onNewBill,
+    required this.onSettleUp,
     required this.onViewBill,
     super.key,
   });
@@ -24,20 +29,30 @@ class BillDashboard extends StatelessWidget {
   final ValueChanged<String> onSwitchGroup;
   final VoidCallback onCreateGroup;
   final VoidCallback onNewBill;
+  final VoidCallback onSettleUp;
   final ValueChanged<BillModel> onViewBill;
 
   @override
   Widget build(BuildContext context) {
-    // TODO: Update this with actual current user ID from Firebase Auth
-    final currentUserId =
-        group.members.isNotEmpty ? group.members.first.id : '';
+    final memberTotals = <BillUser, double>{
+      for (final member in group.members) member: 0,
+    };
 
-    final myTotalOwe = bills.fold<double>(0, (acc, bill) {
-      if (bill.payerId == currentUserId) return acc;
-      if (bill.memberStatuses[currentUserId] == BillStatus.settled) return acc;
+    for (final bill in bills) {
       final splits = calculateUserSplits(bill, group.members);
-      return acc + (splits[currentUserId]?.total ?? 0) * bill.exchangeRate;
-    });
+      for (final entry in splits.entries) {
+        final member = group.members.firstWhere(
+          (m) => m.id == entry.key,
+          orElse: () {
+            return group.members.first;
+          },
+        );
+        if (!memberTotals.containsKey(member)) continue;
+        memberTotals[member] =
+            (memberTotals[member] ?? 0) +
+            (entry.value.total * bill.exchangeRate);
+      }
+    }
 
     final totalSpent = bills.fold<double>(
       0,
@@ -56,7 +71,7 @@ class BillDashboard extends StatelessWidget {
         const SizedBox(height: 16),
         BillSummaryCard(
           totalSpent: totalSpent,
-          myTotalOwe: myTotalOwe,
+          memberTotals: memberTotals,
           settledCount:
               bills.where((b) => b.status == BillStatus.settled).length,
         ),
@@ -73,12 +88,13 @@ class BillDashboard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: QuickActionCard(
                 title: 'Settle Up',
                 subtitle: 'Clear debts',
                 icon: Icons.refresh_rounded,
-                color: Color(0xFF10B981),
+                color: const Color(0xFF10B981),
+                onTap: onSettleUp,
               ),
             ),
           ],
@@ -375,21 +391,32 @@ class _BillCreateBillState extends State<BillCreateBill> {
   late String _payerId;
   double _sst = 6;
   double _serviceCharge = 10;
+  final TextEditingController _sstController = TextEditingController();
+  final TextEditingController _serviceController = TextEditingController();
   final List<BillItem> _items = [];
   final Map<String, TextEditingController> _nameControllers = {};
   final Map<String, TextEditingController> _priceControllers = {};
   final ImagePicker _imagePicker = ImagePicker();
+  final CurrencyRateService _rateService = CurrencyRateService();
   bool _isScanning = false;
   List<BillItem>? _scannedItems; // Holds scanned items before confirmation
+  Map<String, double> _liveRates = {};
+  bool _isLoadingRates = false;
+  String? _rateError;
 
   @override
   void initState() {
     super.initState();
     _payerId = widget.users.isNotEmpty ? widget.users.first.id : '';
+    _sstController.text = _sst.toString();
+    _serviceController.text = _serviceCharge.toString();
+    _loadRates();
   }
 
   @override
   void dispose() {
+    _sstController.dispose();
+    _serviceController.dispose();
     for (final controller in _nameControllers.values) {
       controller.dispose();
     }
@@ -397,6 +424,39 @@ class _BillCreateBillState extends State<BillCreateBill> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _loadRates() async {
+    setState(() {
+      _isLoadingRates = true;
+      _rateError = null;
+    });
+    try {
+      final codes = billCurrencies.keys.toList();
+      final rates = await _rateService.fetchRatesToMyr(symbols: codes);
+      if (!mounted) return;
+      setState(() {
+        _liveRates = rates;
+        _isLoadingRates = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingRates = false;
+        _rateError = 'Unable to load live rates';
+      });
+    }
+  }
+
+  double _getRateForCurrency(String currency) {
+    return _liveRates[currency] ?? billCurrencies[currency]!.rate;
+  }
+
+  String _rateSourceLabel() {
+    if (_isLoadingRates) return 'Loading live rate...';
+    if (_rateError != null) return _rateError!;
+    if (_liveRates.isNotEmpty) return 'Live rate';
+    return 'Static rate';
   }
 
   Future<void> _showScanOptions() async {
@@ -489,63 +549,118 @@ class _BillCreateBillState extends State<BillCreateBill> {
     final inputImage = InputImage.fromFilePath(path);
     final recognized = await recognizer.processImage(inputImage);
     await recognizer.close();
+    final itemsFromBlocks = _parseReceiptItemsFromBlocks(recognized);
+    if (itemsFromBlocks.isNotEmpty) {
+      return itemsFromBlocks;
+    }
     return _parseReceiptItems(recognized.text);
   }
 
-  List<BillItem> _parseReceiptItems(String rawText) {
-    final lines = rawText.split('\n');
+  List<BillItem> _parseReceiptItemsFromBlocks(RecognizedText recognized) {
     final items = <BillItem>[];
     final pricePattern = RegExp(r'(\d+[\.,]\d{2})');
-    String? previousLine;
+    final qtyPattern = RegExp(r'^\s*\d+\s+');
+    final lines = <_OcrLine>[];
 
-    for (var i = 0; i < lines.length; i++) {
-      final trimmed = lines[i].trim();
-      if (trimmed.isEmpty) continue;
-      final lower = trimmed.toLowerCase();
-
-      if (_isIgnoredLine(lower)) {
-        previousLine = null;
-        continue;
+    for (final block in recognized.blocks) {
+      for (final line in block.lines) {
+        final text = line.text.trim();
+        if (text.isEmpty) continue;
+        lines.add(_OcrLine(text: text, box: line.boundingBox));
       }
+    }
 
-      // Look for any price in the line
+    if (lines.isEmpty) return items;
+
+    lines.sort((a, b) {
+      final dy = (a.centerY - b.centerY).abs();
+      if (dy < 6) {
+        return a.left.compareTo(b.left);
+      }
+      return a.centerY.compareTo(b.centerY);
+    });
+
+    final nameCandidates = <_OcrLine>[];
+
+    for (final line in lines) {
+      final trimmed = line.text;
+      final lower = trimmed.toLowerCase();
       final matches = pricePattern.allMatches(trimmed);
+
       if (matches.isEmpty) {
-        // No price, save as potential item name
-        if (RegExp(r'[a-zA-Z]').hasMatch(trimmed)) {
-          previousLine = trimmed;
+        if (_isIgnoredLine(lower)) {
+          nameCandidates.clear();
+          continue;
+        }
+        if (_isHeaderLine(lower)) {
+          continue;
+        }
+        if (RegExp(r'[a-zA-Z]').hasMatch(trimmed) && trimmed.length > 1) {
+          final candidate = _cleanCandidateName(trimmed);
+          if (candidate.isNotEmpty && candidate.length > 1) {
+            nameCandidates.add(line.copyWith(text: candidate));
+            if (nameCandidates.length > 4) {
+              nameCandidates.removeAt(0);
+            }
+          }
         }
         continue;
       }
 
-      // Found price(s), use the last one
       final lastMatch = matches.last;
       final priceStr = lastMatch.group(1)!.replaceAll(',', '.');
       final amount = double.tryParse(priceStr) ?? 0;
       if (amount <= 0) {
-        previousLine = null;
+        nameCandidates.clear();
         continue;
       }
 
-      // Try to extract name from same line first
-      var name = trimmed.substring(0, lastMatch.start).trim();
-
-      // Clean up common patterns in the name part
-      name = name.replaceAll(
+      var textBeforePrice = trimmed.substring(0, lastMatch.start).trim();
+      textBeforePrice = textBeforePrice.replaceAll(
         RegExp(r'\s+(RM|MYR|rm)\s*$', caseSensitive: false),
         '',
       );
-      name = name.replaceAll(RegExp(r'^\d+\s+'), ''); // Remove leading numbers
-      name = name.replaceAll(RegExp(r'\s{2,}'), ' '); // Normalize spaces
-      name = name.trim();
+      textBeforePrice = textBeforePrice.replaceAll(qtyPattern, '');
+      textBeforePrice = textBeforePrice.replaceAll(
+        RegExp(r'^\d+[\.\)]\s*'),
+        '',
+      );
+      textBeforePrice = textBeforePrice.replaceAll(RegExp(r'\s{2,}'), ' ');
+      textBeforePrice = textBeforePrice.trim();
 
-      // If name is too short or empty, use previous line
-      if (name.length < 2 && previousLine != null) {
-        name = previousLine;
-        previousLine = null;
+      String name = _cleanCandidateName(textBeforePrice);
+
+      final lineHeight = line.height > 0 ? line.height : 18;
+      final rowThreshold = (lineHeight * 0.7).clamp(10, 28);
+      final sameRowCandidates =
+          nameCandidates.where((candidate) {
+            final sameRow =
+                (candidate.centerY - line.centerY).abs() <= rowThreshold;
+            final isLeftOfPrice = candidate.right <= line.left + 6;
+            return sameRow && isLeftOfPrice;
+          }).toList();
+
+      if (name.length < 3 || !RegExp(r'[a-zA-Z]{2,}').hasMatch(name)) {
+        if (sameRowCandidates.isNotEmpty) {
+          name = sameRowCandidates.last.text;
+        } else if (nameCandidates.isNotEmpty) {
+          final nearestAbove = nameCandidates.reversed.firstWhere(
+            (candidate) => candidate.centerY < line.centerY,
+            orElse: () => nameCandidates.last,
+          );
+          if ((line.centerY - nearestAbove.centerY) <= lineHeight * 3) {
+            name = nearestAbove.text;
+          }
+        }
       }
 
-      // If still no name, create a placeholder
+      nameCandidates.clear();
+
+      if (name.isEmpty || name.length < 2) {
+        name = 'Item ${items.length + 1}';
+      }
+
+      name = name.replaceAll(RegExp(r'^[^\w\s]+|[^\w\s]+$'), '').trim();
       if (name.isEmpty) {
         name = 'Item ${items.length + 1}';
       }
@@ -558,11 +673,147 @@ class _BillCreateBillState extends State<BillCreateBill> {
           assignedTo: widget.users.map((u) => u.id).toList(),
         ),
       );
-
-      previousLine = null;
     }
 
     return items;
+  }
+
+  List<BillItem> _parseReceiptItems(String rawText) {
+    final lines = rawText.split('\n');
+    final items = <BillItem>[];
+    final pricePattern = RegExp(r'(\d+[\.,]\d{2})');
+    final qtyPattern = RegExp(r'^\s*\d+\s+'); // Pattern for leading quantity
+    final List<String> candidateNames = [];
+
+    for (var i = 0; i < lines.length; i++) {
+      final trimmed = lines[i].trim();
+      if (trimmed.isEmpty) continue;
+      final lower = trimmed.toLowerCase();
+
+      // Look for any price in the line
+      final matches = pricePattern.allMatches(trimmed);
+      if (matches.isEmpty) {
+        // Skip ignored or header-only lines
+        if (_isIgnoredLine(lower)) {
+          candidateNames.clear();
+          continue;
+        }
+        if (_isHeaderLine(lower)) {
+          continue;
+        }
+
+        // No price, save as potential item name if it has letters
+        if (RegExp(r'[a-zA-Z]').hasMatch(trimmed) && trimmed.length > 1) {
+          final candidate = _cleanCandidateName(trimmed);
+          if (candidate.isNotEmpty && candidate.length > 1) {
+            candidateNames.add(candidate);
+            if (candidateNames.length > 3) {
+              candidateNames.removeAt(0);
+            }
+          }
+        }
+        continue;
+      }
+
+      // Found price(s), use the last one as the item price
+      final lastMatch = matches.last;
+      final priceStr = lastMatch.group(1)!.replaceAll(',', '.');
+      final amount = double.tryParse(priceStr) ?? 0;
+      if (amount <= 0) {
+        candidateNames.clear();
+        continue;
+      }
+
+      // Try to extract name from the same line first
+      var textBeforePrice = trimmed.substring(0, lastMatch.start).trim();
+
+      // Clean up the text before price
+      textBeforePrice = textBeforePrice.replaceAll(
+        RegExp(r'\s+(RM|MYR|rm)\s*$', caseSensitive: false),
+        '',
+      );
+      textBeforePrice = textBeforePrice.replaceAll(qtyPattern, '');
+      textBeforePrice = textBeforePrice.replaceAll(
+        RegExp(r'^\d+[\.\)]\s*'),
+        '',
+      );
+      textBeforePrice = textBeforePrice.replaceAll(RegExp(r'\s{2,}'), ' ');
+      textBeforePrice = textBeforePrice.trim();
+
+      String name = _cleanCandidateName(textBeforePrice);
+
+      // If name is too short or mostly numbers, look for better candidates
+      if (name.length < 3 || !RegExp(r'[a-zA-Z]{2,}').hasMatch(name)) {
+        if (candidateNames.isNotEmpty) {
+          for (var j = candidateNames.length - 1; j >= 0; j--) {
+            final candidate = candidateNames[j];
+            if (candidate.length >= 2 &&
+                RegExp(r'[a-zA-Z]').hasMatch(candidate)) {
+              name = candidate;
+              break;
+            }
+          }
+        }
+      }
+
+      // Clear candidates after use to avoid reusing old names
+      candidateNames.clear();
+
+      // If still no valid name, create a placeholder
+      if (name.isEmpty || name.length < 2) {
+        name = 'Item ${items.length + 1}';
+      }
+
+      // Final cleanup: remove trailing/leading special characters
+      name = name.replaceAll(RegExp(r'^[^\w\s]+|[^\w\s]+$'), '');
+      name = name.trim();
+
+      // Ensure name is not empty after cleanup
+      if (name.isEmpty) {
+        name = 'Item ${items.length + 1}';
+      }
+
+      items.add(
+        BillItem(
+          id: '${DateTime.now().microsecondsSinceEpoch}-${items.length}',
+          name: name,
+          price: amount,
+          assignedTo: widget.users.map((u) => u.id).toList(),
+        ),
+      );
+    }
+
+    return items;
+  }
+
+  String _cleanCandidateName(String value) {
+    var candidate = value;
+    candidate = candidate.replaceAll(RegExp(r'^[-*•]\s*'), '');
+    candidate = candidate.replaceAll(RegExp(r'^\d+[\.\)]\s*'), '');
+    candidate = candidate.replaceAll(RegExp(r'\s{2,}'), ' ');
+    candidate = candidate.trim();
+    return candidate;
+  }
+
+  bool _isHeaderLine(String text) {
+    const headerKeywords = [
+      'item',
+      'description',
+      'qty',
+      'quantity',
+      'price',
+      'amount',
+      'product',
+      'name',
+      'ticket id',
+      'ticket',
+    ];
+    for (final keyword in headerKeywords) {
+      if (text.contains(keyword) && text.length < 40) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _isIgnoredLine(String text) {
@@ -596,6 +847,8 @@ class _BillCreateBillState extends State<BillCreateBill> {
 
   void _confirmScannedBill() {
     if (_scannedItems == null) return;
+    if (!_validateStepOne()) return;
+    if (!_validateItems(_scannedItems!)) return;
 
     for (final controller in _nameControllers.values) {
       controller.dispose();
@@ -779,9 +1032,24 @@ class _BillCreateBillState extends State<BillCreateBill> {
               ChoiceChip(
                 label: Text(curr),
                 selected: _currency == curr,
-                onSelected: (_) => setState(() => _currency = curr),
+                onSelected:
+                    (_) => setState(() {
+                      _currency = curr;
+                    }),
               ),
           ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Rate: 1 $_currency = RM ${_getRateForCurrency(_currency).toStringAsFixed(4)}',
+          style: const TextStyle(color: Colors.black54, fontSize: 12),
+        ),
+        Text(
+          _rateSourceLabel(),
+          style: TextStyle(
+            color: _rateError == null ? Colors.black38 : Colors.redAccent,
+            fontSize: 11,
+          ),
         ),
         const SizedBox(height: 12),
         Row(
@@ -794,7 +1062,10 @@ class _BillCreateBillState extends State<BillCreateBill> {
                   fillColor: Colors.white,
                 ),
                 keyboardType: TextInputType.number,
-                controller: TextEditingController(text: _sst.toString()),
+                controller: _sstController,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                ],
                 onChanged: (value) => _sst = double.tryParse(value) ?? _sst,
               ),
             ),
@@ -807,9 +1078,10 @@ class _BillCreateBillState extends State<BillCreateBill> {
                   fillColor: Colors.white,
                 ),
                 keyboardType: TextInputType.number,
-                controller: TextEditingController(
-                  text: _serviceCharge.toString(),
-                ),
+                controller: _serviceController,
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+                ],
                 onChanged:
                     (value) =>
                         _serviceCharge =
@@ -836,6 +1108,33 @@ class _BillCreateBillState extends State<BillCreateBill> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  bool _validateStepOne() {
+    if (_title.trim().isEmpty) {
+      _showSnackBar('Please enter a bill title.');
+      return false;
+    }
+    if (_sstController.text.trim().isEmpty ||
+        _serviceController.text.trim().isEmpty) {
+      _showSnackBar('Please fill SST and Service fields.');
+      return false;
+    }
+    return true;
+  }
+
+  bool _validateItems(List<BillItem> items) {
+    for (final item in items) {
+      if (item.name.trim().isEmpty) {
+        _showSnackBar('Please fill all item names.');
+        return false;
+      }
+      if (item.price <= 0) {
+        _showSnackBar('Please enter valid item prices.');
+        return false;
+      }
+    }
+    return true;
   }
 
   void _addItem() {
@@ -882,6 +1181,12 @@ class _BillCreateBillState extends State<BillCreateBill> {
   }
 
   void _saveBill() {
+    if (!_validateStepOne()) return;
+    if (_items.isEmpty) {
+      _showSnackBar('Please add at least one item.');
+      return;
+    }
+    if (!_validateItems(_items)) return;
     final initialStatuses = <String, BillStatus>{};
     for (final user in widget.users) {
       initialStatuses[user.id] =
@@ -889,7 +1194,7 @@ class _BillCreateBillState extends State<BillCreateBill> {
     }
 
     final exchangeRate =
-        billCurrencies['MYR']!.rate / billCurrencies[_currency]!.rate;
+        _getRateForCurrency(_currency) / billCurrencies['MYR']!.rate;
 
     widget.onSave(
       BillModel(
@@ -1004,9 +1309,24 @@ class _BillCreateBillState extends State<BillCreateBill> {
                 ChoiceChip(
                   label: Text(curr),
                   selected: _currency == curr,
-                  onSelected: (_) => setState(() => _currency = curr),
+                  onSelected:
+                      (_) => setState(() {
+                        _currency = curr;
+                      }),
                 ),
             ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Rate: 1 $_currency = RM ${_getRateForCurrency(_currency).toStringAsFixed(4)}',
+            style: const TextStyle(color: Colors.black54, fontSize: 12),
+          ),
+          Text(
+            _rateSourceLabel(),
+            style: TextStyle(
+              color: _rateError == null ? Colors.black38 : Colors.redAccent,
+              fontSize: 11,
+            ),
           ),
           const SizedBox(height: 12),
           Row(
@@ -1019,6 +1339,12 @@ class _BillCreateBillState extends State<BillCreateBill> {
                     fillColor: Colors.white,
                   ),
                   keyboardType: TextInputType.number,
+                  controller: _sstController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
                   onChanged: (value) => _sst = double.tryParse(value) ?? _sst,
                 ),
               ),
@@ -1031,6 +1357,12 @@ class _BillCreateBillState extends State<BillCreateBill> {
                     fillColor: Colors.white,
                   ),
                   keyboardType: TextInputType.number,
+                  controller: _serviceController,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
                   onChanged:
                       (value) =>
                           _serviceCharge =
@@ -1041,7 +1373,10 @@ class _BillCreateBillState extends State<BillCreateBill> {
           ),
           const SizedBox(height: 16),
           FilledButton(
-            onPressed: () => setState(() => _step = 2),
+            onPressed: () {
+              if (!_validateStepOne()) return;
+              setState(() => _step = 2);
+            },
             child: const Text('Next: Add Items'),
           ),
           const SizedBox(height: 8),
@@ -1143,13 +1478,15 @@ class BillDetailsView extends StatefulWidget {
     required this.users,
     required this.onClose,
     required this.onUpdate,
+    required this.onDelete,
     super.key,
   });
 
   final BillModel bill;
   final List<BillUser> users;
   final VoidCallback onClose;
-  final ValueChanged<BillModel> onUpdate;
+  final Future<void> Function(BillModel) onUpdate;
+  final Future<void> Function(BillModel) onDelete;
 
   @override
   State<BillDetailsView> createState() => _BillDetailsViewState();
@@ -1157,12 +1494,246 @@ class BillDetailsView extends StatefulWidget {
 
 class _BillDetailsViewState extends State<BillDetailsView> {
   String? _expandedUserId;
+  bool _isEditing = false;
+  TextEditingController? _titleController;
+  TextEditingController? _sstController;
+  TextEditingController? _serviceController;
+  late double _editSst;
+  late double _editServiceCharge;
+  List<BillItem> _editItems = [];
+  final Map<String, TextEditingController> _editNameControllers = {};
+  final Map<String, TextEditingController> _editPriceControllers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _syncEditFields(widget.bill);
+  }
+
+  @override
+  void didUpdateWidget(BillDetailsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_isEditing && oldWidget.bill.id != widget.bill.id) {
+      _syncEditFields(widget.bill);
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController?.dispose();
+    _sstController?.dispose();
+    _serviceController?.dispose();
+    for (final controller in _editNameControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _editPriceControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _syncEditFields(BillModel bill) {
+    _titleController?.dispose();
+    _sstController?.dispose();
+    _serviceController?.dispose();
+
+    _titleController = TextEditingController(text: bill.title);
+    _sstController = TextEditingController(text: bill.sst.toString());
+    _serviceController = TextEditingController(
+      text: bill.serviceCharge.toString(),
+    );
+    _editSst = bill.sst;
+    _editServiceCharge = bill.serviceCharge;
+    _editItems =
+        bill.items
+            .map(
+              (item) => BillItem(
+                id: item.id,
+                name: item.name,
+                price: item.price,
+                assignedTo: List<String>.from(item.assignedTo),
+              ),
+            )
+            .toList();
+
+    for (final controller in _editNameControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _editPriceControllers.values) {
+      controller.dispose();
+    }
+    _editNameControllers.clear();
+    _editPriceControllers.clear();
+    for (final item in _editItems) {
+      _editNameControllers[item.id] = TextEditingController(text: item.name);
+      _editPriceControllers[item.id] = TextEditingController(
+        text: item.price.toStringAsFixed(2),
+      );
+    }
+  }
+
+  void _startEdit() {
+    setState(() {
+      _syncEditFields(widget.bill);
+      _isEditing = true;
+    });
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _syncEditFields(widget.bill);
+      _isEditing = false;
+    });
+  }
+
+  void _addEditItem() {
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    setState(() {
+      _editItems.add(
+        BillItem(
+          id: id,
+          name: '',
+          price: 0,
+          assignedTo: widget.users.map((u) => u.id).toList(),
+        ),
+      );
+      _editNameControllers[id] = TextEditingController();
+      _editPriceControllers[id] = TextEditingController(text: '0');
+    });
+  }
+
+  void _updateEditItem(
+    String itemId, {
+    String? name,
+    double? price,
+    List<String>? assignedTo,
+  }) {
+    setState(() {
+      for (var i = 0; i < _editItems.length; i++) {
+        if (_editItems[i].id == itemId) {
+          _editItems[i] = BillItem(
+            id: _editItems[i].id,
+            name: name ?? _editItems[i].name,
+            price: price ?? _editItems[i].price,
+            assignedTo: assignedTo ?? _editItems[i].assignedTo,
+          );
+        }
+      }
+    });
+  }
+
+  double _calculateEditTotal() {
+    final subtotal = _editItems.fold<double>(
+      0,
+      (acc, item) => acc + item.price,
+    );
+    final tax = subtotal * (_editSst / 100);
+    final svc = subtotal * (_editServiceCharge / 100);
+    return subtotal + tax + svc;
+  }
+
+  Future<void> _saveEdits() async {
+    if (!_validateEditFields()) return;
+    if (!_validateEditItems()) return;
+    final title = _titleController?.text.trim() ?? '';
+    final updated = BillModel(
+      id: widget.bill.id,
+      groupId: widget.bill.groupId,
+      title: title.isEmpty ? widget.bill.title : title,
+      date: widget.bill.date,
+      totalAmount: _calculateEditTotal(),
+      currency: widget.bill.currency,
+      exchangeRate: widget.bill.exchangeRate,
+      items: List<BillItem>.from(_editItems),
+      sst: _editSst,
+      serviceCharge: _editServiceCharge,
+      payerId: widget.bill.payerId,
+      status: widget.bill.status,
+      memberStatuses: widget.bill.memberStatuses,
+    );
+    await widget.onUpdate(updated);
+    if (!mounted) return;
+    setState(() => _isEditing = false);
+  }
+
+  Future<void> _confirmDelete() async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Bill'),
+            content: const Text(
+              'Are you sure you want to delete this bill? This cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+    );
+    if (shouldDelete != true) return;
+    await widget.onDelete(widget.bill);
+  }
+
+  bool _allMembersSettled(Map<String, BillStatus> statuses) {
+    if (statuses.isEmpty) return false;
+    return statuses.values.every((status) => status == BillStatus.settled);
+  }
+
+  bool _validateEditFields() {
+    final title = _titleController?.text.trim() ?? '';
+    if (title.isEmpty) {
+      _showSnackBar('Please enter a bill title.');
+      return false;
+    }
+    if (_sstController?.text.trim().isEmpty ?? true) {
+      _showSnackBar('Please enter SST.');
+      return false;
+    }
+    if (_serviceController?.text.trim().isEmpty ?? true) {
+      _showSnackBar('Please enter service charge.');
+      return false;
+    }
+    return true;
+  }
+
+  bool _validateEditItems() {
+    if (_editItems.isEmpty) {
+      _showSnackBar('Please add at least one item.');
+      return false;
+    }
+    for (final item in _editItems) {
+      if (item.name.trim().isEmpty) {
+        _showSnackBar('Please fill all item names.');
+        return false;
+      }
+      if (item.price <= 0) {
+        _showSnackBar('Please enter valid item prices.');
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final payer = widget.users.firstWhere((u) => u.id == widget.bill.payerId);
-    final splits = calculateUserSplits(widget.bill, widget.users);
-    final currency = billCurrencies[widget.bill.currency]!;
+    final bill = widget.bill;
+    final payer = widget.users.firstWhere((u) => u.id == bill.payerId);
+    final splits = calculateUserSplits(bill, widget.users);
+    final currency = billCurrencies[bill.currency]!;
+    final totalAmount = _isEditing ? _calculateEditTotal() : bill.totalAmount;
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
@@ -1170,48 +1741,87 @@ class _BillDetailsViewState extends State<BillDetailsView> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.bill.title,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _isEditing ? 'Edit Bill' : bill.title,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                Text('Paid by ${payer.name}'),
-              ],
-            ),
-            FilledButton(
-              onPressed: () {
-                final nextStatus =
-                    widget.bill.status == BillStatus.settled
-                        ? BillStatus.pending
-                        : BillStatus.settled;
-                widget.onUpdate(
-                  BillModel(
-                    id: widget.bill.id,
-                    groupId: widget.bill.groupId,
-                    title: widget.bill.title,
-                    date: widget.bill.date,
-                    totalAmount: widget.bill.totalAmount,
-                    currency: widget.bill.currency,
-                    exchangeRate: widget.bill.exchangeRate,
-                    items: widget.bill.items,
-                    sst: widget.bill.sst,
-                    serviceCharge: widget.bill.serviceCharge,
-                    payerId: widget.bill.payerId,
-                    status: nextStatus,
-                    memberStatuses: widget.bill.memberStatuses,
-                  ),
-                );
-              },
-              child: Text(
-                widget.bill.status == BillStatus.settled
-                    ? 'Settled'
-                    : 'Pending',
+                  Text('Paid by ${payer.name}'),
+                ],
               ),
             ),
+            const SizedBox(width: 12),
+            if (_isEditing)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton(
+                    onPressed: _cancelEdit,
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _saveEdits,
+                    child: const Text('Save'),
+                  ),
+                ],
+              )
+            else
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    onPressed: _startEdit,
+                    icon: const Icon(Icons.edit_rounded),
+                    tooltip: 'Edit bill',
+                  ),
+                  IconButton(
+                    onPressed: _confirmDelete,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    tooltip: 'Delete bill',
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      final nextStatus =
+                          bill.status == BillStatus.settled
+                              ? BillStatus.pending
+                              : BillStatus.settled;
+                      if (nextStatus == BillStatus.settled &&
+                          !_allMembersSettled(bill.memberStatuses)) {
+                        _showSnackBar(
+                          'Cannot mark bill as settled until all members are settled.',
+                        );
+                        return;
+                      }
+                      await widget.onUpdate(
+                        BillModel(
+                          id: bill.id,
+                          groupId: bill.groupId,
+                          title: bill.title,
+                          date: bill.date,
+                          totalAmount: bill.totalAmount,
+                          currency: bill.currency,
+                          exchangeRate: bill.exchangeRate,
+                          items: bill.items,
+                          sst: bill.sst,
+                          serviceCharge: bill.serviceCharge,
+                          payerId: bill.payerId,
+                          status: nextStatus,
+                          memberStatuses: bill.memberStatuses,
+                        ),
+                      );
+                    },
+                    child: Text(
+                      bill.status == BillStatus.settled ? 'Settled' : 'Pending',
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
         const SizedBox(height: 16),
@@ -1227,81 +1837,183 @@ class _BillDetailsViewState extends State<BillDetailsView> {
               const Text('Total Bill', style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 4),
               Text(
-                '${currency.symbol} ${widget.bill.totalAmount.toStringAsFixed(2)}',
+                '${currency.symbol} ${totalAmount.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              if (widget.bill.currency != 'MYR')
+              if (bill.currency != 'MYR')
                 Text(
-                  '≈ RM ${(widget.bill.totalAmount * widget.bill.exchangeRate).toStringAsFixed(2)}',
+                  '≈ RM ${(totalAmount * bill.exchangeRate).toStringAsFixed(2)}',
                   style: const TextStyle(color: Colors.black54),
                 ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          'Split Breakdown',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+        if (_isEditing) ...[
+          const SizedBox(height: 16),
+          TextField(
+            controller: _titleController!,
+            decoration: const InputDecoration(
+              labelText: 'Bill Title',
+              filled: true,
+              fillColor: Colors.white,
+            ),
           ),
-          child: Column(
+          const SizedBox(height: 12),
+          Text(
+            'Currency',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${bill.currency} • Rate 1 ${bill.currency} = RM ${bill.exchangeRate.toStringAsFixed(4)}',
+            style: const TextStyle(color: Colors.black54, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          Row(
             children: [
-              for (final user in widget.users)
-                UserSplitTile(
-                  user: user,
-                  bill: widget.bill,
-                  split: splits[user.id],
-                  currency: currency,
-                  expanded: _expandedUserId == user.id,
-                  onToggle:
-                      () => setState(() {
-                        _expandedUserId =
-                            _expandedUserId == user.id ? null : user.id;
-                      }),
-                  onToggleStatus: () {
-                    final current =
-                        widget.bill.memberStatuses[user.id] ??
-                        BillStatus.pending;
-                    final updated = Map<String, BillStatus>.from(
-                      widget.bill.memberStatuses,
-                    );
-                    updated[user.id] =
-                        current == BillStatus.settled
-                            ? BillStatus.pending
-                            : BillStatus.settled;
-                    widget.onUpdate(
-                      BillModel(
-                        id: widget.bill.id,
-                        groupId: widget.bill.groupId,
-                        title: widget.bill.title,
-                        date: widget.bill.date,
-                        totalAmount: widget.bill.totalAmount,
-                        currency: widget.bill.currency,
-                        exchangeRate: widget.bill.exchangeRate,
-                        items: widget.bill.items,
-                        sst: widget.bill.sst,
-                        serviceCharge: widget.bill.serviceCharge,
-                        payerId: widget.bill.payerId,
-                        status: widget.bill.status,
-                        memberStatuses: updated,
-                      ),
-                    );
-                  },
+              Expanded(
+                child: TextField(
+                  controller: _sstController,
+                  decoration: const InputDecoration(
+                    labelText: 'SST (%)',
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
+                  onChanged:
+                      (value) => _editSst = double.tryParse(value) ?? _editSst,
                 ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _serviceController,
+                  decoration: const InputDecoration(
+                    labelText: 'Service (%)',
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d*\.?\d{0,2}'),
+                    ),
+                  ],
+                  onChanged:
+                      (value) =>
+                          _editServiceCharge =
+                              double.tryParse(value) ?? _editServiceCharge,
+                ),
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 12),
+          if (_editItems.isEmpty)
+            EmptyState(
+              message: 'Add your first item',
+              actionLabel: 'Add Item',
+              onAction: _addEditItem,
+            )
+          else
+            ..._editItems.map(
+              (item) => BillItemEditor(
+                item: item,
+                users: widget.users,
+                currencySymbol: currency.symbol,
+                onChanged: _updateEditItem,
+                nameController: _editNameControllers[item.id]!,
+                priceController: _editPriceControllers[item.id]!,
+                onRemove: () {
+                  setState(() {
+                    _editItems.remove(item);
+                  });
+                  _editNameControllers.remove(item.id)?.dispose();
+                  _editPriceControllers.remove(item.id)?.dispose();
+                },
+              ),
+            ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _addEditItem,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add Item'),
+          ),
+        ] else ...[
+          const SizedBox(height: 16),
+          Text(
+            'Split Breakdown',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                for (final user in widget.users)
+                  UserSplitTile(
+                    user: user,
+                    bill: bill,
+                    split: splits[user.id],
+                    currency: currency,
+                    expanded: _expandedUserId == user.id,
+                    onToggle:
+                        () => setState(() {
+                          _expandedUserId =
+                              _expandedUserId == user.id ? null : user.id;
+                        }),
+                    onToggleStatus: () async {
+                      final current =
+                          bill.memberStatuses[user.id] ?? BillStatus.pending;
+                      final updated = Map<String, BillStatus>.from(
+                        bill.memberStatuses,
+                      );
+                      updated[user.id] =
+                          current == BillStatus.settled
+                              ? BillStatus.pending
+                              : BillStatus.settled;
+                      final nextBillStatus =
+                          _allMembersSettled(updated)
+                              ? BillStatus.settled
+                              : BillStatus.pending;
+                      await widget.onUpdate(
+                        BillModel(
+                          id: bill.id,
+                          groupId: bill.groupId,
+                          title: bill.title,
+                          date: bill.date,
+                          totalAmount: bill.totalAmount,
+                          currency: bill.currency,
+                          exchangeRate: bill.exchangeRate,
+                          items: bill.items,
+                          sst: bill.sst,
+                          serviceCharge: bill.serviceCharge,
+                          payerId: bill.payerId,
+                          status: nextBillStatus,
+                          memberStatuses: updated,
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         FilledButton(
           onPressed: widget.onClose,
@@ -1309,5 +2021,21 @@ class _BillDetailsViewState extends State<BillDetailsView> {
         ),
       ],
     );
+  }
+}
+
+class _OcrLine {
+  _OcrLine({required this.text, required this.box});
+
+  final String text;
+  final Rect box;
+
+  double get left => box.left;
+  double get right => box.right;
+  double get centerY => box.center.dy;
+  double get height => box.height;
+
+  _OcrLine copyWith({String? text}) {
+    return _OcrLine(text: text ?? this.text, box: box);
   }
 }

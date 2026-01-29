@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'bill_tracking_models.dart';
 
@@ -131,13 +132,13 @@ class _BillGroupSelectorState extends State<BillGroupSelector> {
 class BillSummaryCard extends StatelessWidget {
   const BillSummaryCard({
     required this.totalSpent,
-    required this.myTotalOwe,
+    required this.memberTotals,
     required this.settledCount,
     super.key,
   });
 
   final double totalSpent;
-  final double myTotalOwe;
+  final Map<BillUser, double> memberTotals;
   final int settledCount;
 
   @override
@@ -177,19 +178,26 @@ class BillSummaryCard extends StatelessWidget {
           Row(
             children: [
               BadgeChip(
-                color:
-                    myTotalOwe > 0
-                        ? const Color(0xFFF97316)
-                        : const Color(0xFF22C55E),
-                label: 'You owe: RM ${myTotalOwe.toStringAsFixed(2)}',
-              ),
-              const SizedBox(width: 8),
-              BadgeChip(
                 color: const Color(0xFF22C55E),
                 label: 'Settled: $settledCount',
               ),
             ],
           ),
+          if (memberTotals.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final entry in memberTotals.entries)
+                  BadgeChip(
+                    color: const Color(0xFF60A5FA),
+                    label:
+                        '${entry.key.name}: RM ${entry.value.toStringAsFixed(2)}',
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -423,7 +431,7 @@ class BillListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMe = bill.payerId == 'u1';
-    final currency = billCurrencies[bill.currency]!;
+    final convertedTotal = bill.totalAmount * bill.exchangeRate;
 
     return Card(
       elevation: 0,
@@ -451,7 +459,7 @@ class BillListItem extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              '${currency.symbol} ${bill.totalAmount.toStringAsFixed(2)}',
+              'RM ${convertedTotal.toStringAsFixed(2)}',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
@@ -547,6 +555,11 @@ class BillItemEditor extends StatelessWidget {
                       border: const OutlineInputBorder(),
                     ),
                     keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d*\.?\d{0,2}'),
+                      ),
+                    ],
                     onChanged:
                         (value) => onChanged(
                           item.id,
@@ -699,6 +712,26 @@ class UserSplitTile extends StatelessWidget {
                             const Text('Subtotal'),
                             Text(
                               '${currency.symbol} ${split!.subtotal.toStringAsFixed(2)}',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('SST + Service'),
+                            Text(
+                              '${currency.symbol} ${(split!.total - split!.subtotal).toStringAsFixed(2)}',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text('Total'),
+                            Text(
+                              '${currency.symbol} ${split!.total.toStringAsFixed(2)}',
                             ),
                           ],
                         ),

@@ -18,6 +18,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
       BillTrackingFirebaseService();
 
   BillTrackingView _view = BillTrackingView.dashboard;
+  BillTrackingView _previousView = BillTrackingView.dashboard;
   String? _activeGroupId;
   BillModel? _selectedBill;
 
@@ -43,17 +44,26 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
 
   void _loadData() {
     // Listen to groups changes in real-time
-    _groupsSubscription = _firebaseService.getGroupsStream().listen((groups) {
-      setState(() {
-        _groups = groups;
-        // If no active group is set and groups exist, set the first one
-        if (_activeGroupId == null && groups.isNotEmpty) {
-          _activeGroupId = groups.first.id;
-          _loadBillsForActiveGroup();
-        }
-        _isLoading = false;
-      });
-    });
+    _groupsSubscription = _firebaseService.getGroupsStream().listen(
+      (groups) {
+        setState(() {
+          _groups = groups;
+          // If no active group is set and groups exist, set the first one
+          if (_activeGroupId == null && groups.isNotEmpty) {
+            _activeGroupId = groups.first.id;
+            _loadBillsForActiveGroup();
+          }
+          _isLoading = false;
+        });
+      },
+      onError: (error) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load groups: $error')),
+        );
+      },
+    );
   }
 
   void _loadBillsForActiveGroup() {
@@ -70,11 +80,19 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
     // Listen to bills for the active group in real-time
     _billsSubscription = _firebaseService
         .getBillsStream(_activeGroupId!)
-        .listen((bills) {
-          setState(() {
-            _bills = bills;
-          });
-        });
+        .listen(
+          (bills) {
+            setState(() {
+              _bills = bills;
+            });
+          },
+          onError: (error) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to load bills: $error')),
+            );
+          },
+        );
   }
 
   BillGroup? get _activeGroup {
@@ -105,6 +123,23 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to update bill: $e')));
+      }
+    }
+  }
+
+  Future<void> _deleteBill(BillModel bill) async {
+    try {
+      await _firebaseService.deleteBill(bill.id);
+      if (!mounted) return;
+      setState(() {
+        _selectedBill = null;
+        _view = BillTrackingView.dashboard;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete bill: $e')));
       }
     }
   }
@@ -144,6 +179,53 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
     }
   }
 
+  Future<void> _settleUpAllBills() async {
+    if (_activeGroup == null) return;
+    final members = _activeGroup!.members;
+    if (_activeBills.isEmpty) return;
+
+    try {
+      for (final bill in _activeBills) {
+        final updatedStatuses = <String, BillStatus>{
+          for (final member in members) member.id: BillStatus.settled,
+        };
+        final updatedBill = BillModel(
+          id: bill.id,
+          groupId: bill.groupId,
+          title: bill.title,
+          date: bill.date,
+          totalAmount: bill.totalAmount,
+          currency: bill.currency,
+          exchangeRate: bill.exchangeRate,
+          items: bill.items,
+          sst: bill.sst,
+          serviceCharge: bill.serviceCharge,
+          payerId: bill.payerId,
+          status: BillStatus.settled,
+          memberStatuses: updatedStatuses,
+        );
+        await _firebaseService.updateBill(updatedBill);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All bills marked as settled.')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to settle bills: $e')));
+      }
+    }
+  }
+
+  void _setPreviousView() {
+    if (_view == BillTrackingView.dashboard ||
+        _view == BillTrackingView.history) {
+      _previousView = _view;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -155,7 +237,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
             _view != BillTrackingView.dashboard &&
             _view != BillTrackingView.history) {
           // Navigate to dashboard instead of popping
-          setState(() => _view = BillTrackingView.dashboard);
+          setState(() => _view = _previousView);
         }
       },
       child: Scaffold(
@@ -172,31 +254,13 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
                     icon: const Icon(Icons.arrow_back),
                     onPressed: () {
                       // Navigate to dashboard instead of popping
-                      setState(() => _view = BillTrackingView.dashboard);
+                      setState(() => _view = _previousView);
                     },
                   ),
           automaticallyImplyLeading:
               _view == BillTrackingView.dashboard ||
               _view == BillTrackingView.history,
-          actions: [
-            if (_view == BillTrackingView.dashboard ||
-                _view == BillTrackingView.history)
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: const [
-                    Icon(Icons.public_rounded, size: 16),
-                    SizedBox(width: 6),
-                    Text('MYR', style: TextStyle(fontSize: 12)),
-                  ],
-                ),
-              ),
-          ],
+          actions: const [],
         ),
         body:
             _isLoading
@@ -293,8 +357,12 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
           onCreateGroup:
               () => setState(() => _view = BillTrackingView.createGroup),
           onNewBill: () => setState(() => _view = BillTrackingView.createBill),
+          onSettleUp: () async {
+            await _settleUpAllBills();
+          },
           onViewBill: (bill) {
             setState(() {
+              _setPreviousView();
               _selectedBill = bill;
               _view = BillTrackingView.details;
             });
@@ -310,6 +378,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
           bills: _activeBills,
           onViewBill: (bill) {
             setState(() {
+              _setPreviousView();
               _selectedBill = bill;
               _view = BillTrackingView.details;
             });
@@ -332,8 +401,9 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         return BillDetailsView(
           bill: _selectedBill!,
           users: _activeGroup!.members,
-          onClose: () => setState(() => _view = BillTrackingView.dashboard),
+          onClose: () => setState(() => _view = _previousView),
           onUpdate: _updateBill,
+          onDelete: _deleteBill,
         );
     }
   }

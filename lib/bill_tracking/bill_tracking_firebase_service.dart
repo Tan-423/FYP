@@ -67,12 +67,14 @@ class BillTrackingFirebaseService {
     return _firestore
         .collection(_billsCollection)
         .where('groupId', isEqualTo: groupId)
-        .orderBy('date', descending: true)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => BillModel.fromMap(doc.data()))
-              .toList();
+          final bills =
+              snapshot.docs
+                  .map((doc) => BillModel.fromMap(doc.data()))
+                  .toList();
+          bills.sort((a, b) => b.date.compareTo(a.date));
+          return bills;
         });
   }
 
@@ -82,9 +84,11 @@ class BillTrackingFirebaseService {
         await _firestore
             .collection(_billsCollection)
             .where('groupId', isEqualTo: groupId)
-            .orderBy('date', descending: true)
             .get();
-    return snapshot.docs.map((doc) => BillModel.fromMap(doc.data())).toList();
+    final bills =
+        snapshot.docs.map((doc) => BillModel.fromMap(doc.data())).toList();
+    bills.sort((a, b) => b.date.compareTo(a.date));
+    return bills;
   }
 
   /// Get all bills across all groups (for history view)
