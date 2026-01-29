@@ -170,8 +170,9 @@ class CurrencyInfo {
 }
 
 const Map<String, CurrencyInfo> billCurrencies = {
+  // Rates are MYR per 1 unit of currency (approximate).
   'MYR': CurrencyInfo(rate: 1, symbol: 'RM', name: 'Ringgit Malaysia'),
-  'SGD': CurrencyInfo(rate: 3.5, symbol: 'S\$', name: 'Singapore Dollar'),
+  'SGD': CurrencyInfo(rate: 3.1, symbol: 'S\$', name: 'Singapore Dollar'),
   'USD': CurrencyInfo(rate: 4.7, symbol: '\$', name: 'US Dollar'),
   'THB': CurrencyInfo(rate: 0.13, symbol: 'THB', name: 'Thai Baht'),
   'JPY': CurrencyInfo(rate: 0.03, symbol: 'JPY', name: 'Japanese Yen'),
