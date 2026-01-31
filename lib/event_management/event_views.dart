@@ -1,8 +1,10 @@
 part of 'event_management.dart';
 
-mixin EventManagementViews on State<EventManagementScreen>, EventManagementActions {
+mixin EventManagementViews
+    on State<EventManagementScreen>, EventManagementActions {
   Widget _buildEventImage(String imageRef, {BoxFit fit = BoxFit.cover}) {
-    final resolved = imageRef.trim().isEmpty ? _fallbackImageUrl : imageRef.trim();
+    final resolved =
+        imageRef.trim().isEmpty ? _fallbackImageUrl : imageRef.trim();
     if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
       return Image.network(
         resolved,
@@ -12,6 +14,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     }
     return Image.asset(resolved, fit: fit);
   }
+
   Widget _buildNotificationBar() {
     if (_notificationMessage.isEmpty) {
       return const SizedBox(height: 0);
@@ -132,8 +135,12 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                     hintText: 'Enter password',
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _showOrganizerPassword = !_showOrganizerPassword),
+                      onPressed:
+                          () => setState(
+                            () =>
+                                _showOrganizerPassword =
+                                    !_showOrganizerPassword,
+                          ),
                       icon: Icon(
                         _showOrganizerPassword
                             ? Icons.visibility_off
@@ -163,17 +170,19 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                child: _isAuthenticating
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor:
-                              AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text('Authorize Login'),
+                child:
+                    _isAuthenticating
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                        : const Text('Authorize Login'),
               ),
             ),
           ],
@@ -318,8 +327,9 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             Stack(
               children: [
                 ClipRRect(
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(20)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(20),
+                  ),
                   child: AspectRatio(
                     aspectRatio: 16 / 9,
                     child: _buildEventImage(event.imageUrl, fit: BoxFit.cover),
@@ -375,7 +385,11 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   ],
                   Row(
                     children: [
-                      const Icon(Icons.location_on, size: 16, color: Colors.red),
+                      const Icon(
+                        Icons.location_on,
+                        size: 16,
+                        color: Colors.red,
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
@@ -388,8 +402,11 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      const Icon(Icons.calendar_today,
-                          size: 16, color: Colors.blue),
+                      const Icon(
+                        Icons.calendar_today,
+                        size: 16,
+                        color: Colors.blue,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         event.date,
@@ -558,8 +575,8 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                       isSoldOut
                           ? 'Sold Out'
                           : event.price > 0
-                              ? 'Buy Ticket'
-                              : 'Register Now',
+                          ? 'Buy Ticket'
+                          : 'Register Now',
                     ),
                   ),
                 ),
@@ -595,10 +612,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                 fontWeight: FontWeight.w600,
               ),
             ),
-            Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
       ],
@@ -683,6 +697,8 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
   }
 
   Widget _buildFailedPaymentCard(PaymentRecord payment) {
+    final normalizedStatus = payment.status.toUpperCase();
+    final isCancelled = normalizedStatus == 'CANCELLED';
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
@@ -711,20 +727,20 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
           const SizedBox(height: 8),
           Row(
             children: [
-              if (payment.status != 'CANCELLED') ...[
-                ElevatedButton(
-                  onPressed: () => _retryFailedPayment(payment),
-                  child: const Text('Continue Payment'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => _cancelFailedPayment(payment),
-                  child: const Text('Cancel'),
-                ),
-              ] else
+              ElevatedButton(
+                onPressed: () => _retryFailedPayment(payment),
+                child: const Text('Try Again'),
+              ),
+              const SizedBox(width: 8),
+              if (isCancelled)
                 TextButton(
                   onPressed: () => _deletePaymentRecord(payment),
                   child: const Text('Remove'),
+                )
+              else
+                TextButton(
+                  onPressed: () => _cancelFailedPayment(payment),
+                  child: const Text('Cancel'),
                 ),
             ],
           ),
@@ -777,32 +793,34 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
         ),
         const SizedBox(height: 8),
         Expanded(
-          child: _paymentApprovalUrl == null
-              ? const Center(child: CircularProgressIndicator())
-              : ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: WebViewWidget(
-                    controller: WebViewController()
-                      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                      ..setNavigationDelegate(
-                        NavigationDelegate(
-                          onNavigationRequest: (request) {
-                            final url = request.url;
-                            if (url.startsWith(_paypalReturnUrl)) {
-                              _capturePayPalOrder();
-                              return NavigationDecision.prevent;
-                            }
-                            if (url.startsWith(_paypalCancelUrl)) {
-                              _cancelPayPalCheckout();
-                              return NavigationDecision.prevent;
-                            }
-                            return NavigationDecision.navigate;
-                          },
-                        ),
-                      )
-                      ..loadRequest(Uri.parse(_paymentApprovalUrl!)),
+          child:
+              _paymentApprovalUrl == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: WebViewWidget(
+                      controller:
+                          WebViewController()
+                            ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                            ..setNavigationDelegate(
+                              NavigationDelegate(
+                                onNavigationRequest: (request) {
+                                  final url = request.url;
+                                  if (url.startsWith(_paypalReturnUrl)) {
+                                    _capturePayPalOrder();
+                                    return NavigationDecision.prevent;
+                                  }
+                                  if (url.startsWith(_paypalCancelUrl)) {
+                                    _cancelPayPalCheckout();
+                                    return NavigationDecision.prevent;
+                                  }
+                                  return NavigationDecision.navigate;
+                                },
+                              ),
+                            )
+                            ..loadRequest(Uri.parse(_paymentApprovalUrl!)),
+                    ),
                   ),
-                ),
         ),
         if (_isCapturingPayment)
           const Padding(
@@ -875,14 +893,16 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   title: 'Unable to load your events.',
                 );
               }
-              final events = (snapshot.data ?? []).where((event) {
-                final matchesId =
-                    _currentUserId != null && event.organizerId == _currentUserId;
-                final matchesName =
-                    event.organizerName.isNotEmpty &&
-                    event.organizerName == _currentUserName;
-                return matchesId || matchesName;
-              }).toList();
+              final events =
+                  (snapshot.data ?? []).where((event) {
+                    final matchesId =
+                        _currentUserId != null &&
+                        event.organizerId == _currentUserId;
+                    final matchesName =
+                        event.organizerName.isNotEmpty &&
+                        event.organizerName == _currentUserName;
+                    return matchesId || matchesName;
+                  }).toList();
               if (events.isEmpty) {
                 return _buildEmptyState(
                   icon: Icons.event_busy,
@@ -918,7 +938,10 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                           child: SizedBox(
                             width: 70,
                             height: 70,
-                            child: _buildEventImage(event.imageUrl, fit: BoxFit.cover),
+                            child: _buildEventImage(
+                              event.imageUrl,
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -957,7 +980,10 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                         ),
                         IconButton(
                           onPressed: () => _deleteEvent(event.id),
-                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
                         ),
                       ],
                     ),
@@ -1019,16 +1045,19 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                   borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              child: _isUpdatingProfile
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text('Save Profile Changes'),
+              child:
+                  _isUpdatingProfile
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                      : const Text('Save Profile Changes'),
             ),
           ),
         ],
@@ -1135,7 +1164,8 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                 final random = Random(index + value.hashCode);
                 return Container(
                   decoration: BoxDecoration(
-                    color: random.nextBool() ? Colors.black : Colors.transparent,
+                    color:
+                        random.nextBool() ? Colors.black : Colors.transparent,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 );
@@ -1166,14 +1196,19 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
           Row(
             children: [
               IconButton(
-                onPressed: () => _selectView(
-                    _isOrganizer ? EventView.manage : EventView.explore),
+                onPressed:
+                    () => _selectView(
+                      _isOrganizer ? EventView.manage : EventView.explore,
+                    ),
                 icon: const Icon(Icons.chevron_left),
               ),
               const SizedBox(width: 4),
               Text(
                 isEditing ? 'Update Event' : 'Publish New Event',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -1289,22 +1324,25 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: _isPublishing ? null : _publishEvent,
-              icon: _isPublishing
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Icon(Icons.add_circle_outline),
+              icon:
+                  _isPublishing
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                      : const Icon(Icons.add_circle_outline),
               label: Text(
                 _isPublishing
                     ? 'Publishing...'
                     : isEditing
-                        ? 'Update Event'
-                        : 'Publish Event',
+                    ? 'Update Event'
+                    : 'Publish Event',
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue,
@@ -1332,10 +1370,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
         TextField(
           controller: controller,
@@ -1365,21 +1400,16 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
         DropdownButtonFormField<String>(
           value: value,
-          items: items
-              .map(
-                (item) => DropdownMenuItem(
-                  value: item,
-                  child: Text(item),
-                ),
-              )
-              .toList(),
+          items:
+              items
+                  .map(
+                    (item) => DropdownMenuItem(value: item, child: Text(item)),
+                  )
+                  .toList(),
           onChanged: onChanged,
           decoration: InputDecoration(
             filled: true,
@@ -1402,10 +1432,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
         InkWell(
           onTap: onPressed,
@@ -1449,9 +1476,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
           onPressed: _pickEventImage,
           icon: const Icon(Icons.photo_library_outlined),
           label: Text(
-            pickedImageFile == null
-                ? 'Select from album'
-                : 'Change image',
+            pickedImageFile == null ? 'Select from album' : 'Change image',
           ),
         ),
         if (pickedImageFile != null) ...[
@@ -1465,18 +1490,20 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
         DropdownButtonFormField<String?>(
           value: _newEventImageRef,
           hint: const Text('Use category default'),
-          items: _eventImageOptions
-              .map(
-                (item) => DropdownMenuItem<String?>(
-                  value: item,
-                  child: Text(_imageLabelFromPath(item)),
-                ),
-              )
-              .toList(),
-          onChanged: (value) => setState(() {
-            _newEventImageRef = value;
-            _newEventImageFile = null;
-          }),
+          items:
+              _eventImageOptions
+                  .map(
+                    (item) => DropdownMenuItem<String?>(
+                      value: item,
+                      child: Text(_imageLabelFromPath(item)),
+                    ),
+                  )
+                  .toList(),
+          onChanged:
+              (value) => setState(() {
+                _newEventImageRef = value;
+                _newEventImageFile = null;
+              }),
           decoration: InputDecoration(
             filled: true,
             fillColor: const Color(0xFFF9FAFB),
@@ -1495,15 +1522,16 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: pickedImageFile != null
-                ? Image.file(File(pickedImageFile.path), fit: BoxFit.cover)
-                : previewImage == null
+            child:
+                pickedImageFile != null
+                    ? Image.file(File(pickedImageFile.path), fit: BoxFit.cover)
+                    : previewImage == null
                     ? const Center(
-                        child: Text(
-                          'No image selected',
-                          style: TextStyle(color: Colors.black45),
-                        ),
-                      )
+                      child: Text(
+                        'No image selected',
+                        style: TextStyle(color: Colors.black45),
+                      ),
+                    )
                     : _buildEventImage(previewImage, fit: BoxFit.cover),
           ),
         ),
@@ -1545,10 +1573,7 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             ],
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: onAction,
-                child: Text(actionLabel),
-              ),
+              ElevatedButton(onPressed: onAction, child: Text(actionLabel)),
             ],
           ],
         ),
@@ -1585,7 +1610,8 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
             _buildNavItem(
               icon: Icons.settings,
               label: 'Manage',
-              isActive: _view == EventView.manage ||
+              isActive:
+                  _view == EventView.manage ||
                   _view == EventView.organize ||
                   _view == EventView.edit,
               onTap: () => _selectView(EventView.manage),
@@ -1628,18 +1654,17 @@ mixin EventManagementViews on State<EventManagementScreen>, EventManagementActio
                 Positioned(
                   right: 0,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
                     decoration: const BoxDecoration(
                       color: Colors.red,
                       shape: BoxShape.circle,
                     ),
                     child: Text(
                       badgeCount.toString(),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                      ),
+                      style: const TextStyle(fontSize: 10, color: Colors.white),
                     ),
                   ),
                 ),

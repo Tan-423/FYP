@@ -15,7 +15,9 @@ part 'event_actions.dart';
 part 'event_views.dart';
 
 class EventManagementScreen extends StatefulWidget {
-  const EventManagementScreen({super.key});
+  const EventManagementScreen({super.key, this.retryPaymentId});
+
+  final String? retryPaymentId;
 
   @override
   State<EventManagementScreen> createState() => _EventManagementScreenState();
@@ -23,6 +25,21 @@ class EventManagementScreen extends StatefulWidget {
 
 class _EventManagementScreenState extends State<EventManagementScreen>
     with EventManagementActions, EventManagementViews {
+  bool _didResumePayment = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final retryId = widget.retryPaymentId;
+    if (retryId != null && retryId.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _didResumePayment) return;
+        _didResumePayment = true;
+        _resumePaymentFromId(retryId);
+      });
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();

@@ -12,13 +12,16 @@ import 'accommodation_views.dart';
 import 'accommodation_widgets.dart';
 
 class AccommodationScreen extends StatefulWidget {
-  const AccommodationScreen({super.key});
+  const AccommodationScreen({super.key, this.retryPaymentId});
+
+  final String? retryPaymentId;
 
   @override
   State<AccommodationScreen> createState() => _AccommodationScreenState();
 }
 
 class _AccommodationScreenState extends State<AccommodationScreen> {
+  bool _didResumePayment = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final CollectionReference<Map<String, dynamic>> _paymentsRef =
@@ -63,6 +66,19 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   };
 
   @override
+  void initState() {
+    super.initState();
+    final retryId = widget.retryPaymentId;
+    if (retryId != null && retryId.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _didResumePayment) return;
+        _didResumePayment = true;
+        _resumePaymentFromId(retryId);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _ownerEmailController.dispose();
     _ownerPasswordController.dispose();
@@ -86,14 +102,12 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
-          (snapshot) => snapshot.docs
-              .map(
-                (doc) => AccommodationItem.fromMap(
-                  doc.data(),
-                  id: doc.id,
-                ),
-              )
-              .toList(),
+          (snapshot) =>
+              snapshot.docs
+                  .map(
+                    (doc) => AccommodationItem.fromMap(doc.data(), id: doc.id),
+                  )
+                  .toList(),
         );
   }
 
@@ -101,7 +115,10 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     final userId = _auth.currentUser?.uid ?? 'guest';
     return _paymentsRef
         .where('UserId', isEqualTo: userId)
-        .where('Status', whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'])
+        .where(
+          'Status',
+          whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'],
+        )
         .snapshots()
         .map((snapshot) {
           final payments = <AccommodationPaymentRecord>[];
@@ -137,19 +154,21 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             final data = doc.data();
             final accommodationId = data['AccommodationId'] as String?;
             if (accommodationId == null) continue;
-            
-            final accommodation = await _fetchAccommodationById(accommodationId);
+
+            final accommodation = await _fetchAccommodationById(
+              accommodationId,
+            );
             if (accommodation == null) continue;
-            
+
             final checkInValue = data['CheckIn'];
             final checkOutValue = data['CheckOut'];
-            final checkIn = checkInValue is Timestamp ? checkInValue.toDate() : null;
-            final checkOut = checkOutValue is Timestamp ? checkOutValue.toDate() : null;
-            
+            final checkIn =
+                checkInValue is Timestamp ? checkInValue.toDate() : null;
+            final checkOut =
+                checkOutValue is Timestamp ? checkOutValue.toDate() : null;
+
             if (checkIn == null || checkOut == null) continue;
-            
-            final createdAt = data['CreatedAt'] as Timestamp?;
-            
+
             bookings.add(
               BookingItem(
                 bookingId: data['BookingId'] as String? ?? doc.id,
@@ -217,8 +236,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     );
     try {
       await _firestore.runTransaction((transaction) async {
-        final accommodationRef =
-            _firestore.collection('accommodations').doc(item.id);
+        final accommodationRef = _firestore
+            .collection('accommodations')
+            .doc(item.id);
         final accommodationSnap = await transaction.get(accommodationRef);
         final data = accommodationSnap.data();
         if (data == null) {
@@ -245,7 +265,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           'AccommodationName': item.name,
           'AccommodationLocation': item.location,
           'AccommodationImage': item.image,
-        'OwnerId': item.ownerId,
+          'OwnerId': item.ownerId,
           'RoomType': request.roomType,
           'CheckIn': Timestamp.fromDate(request.checkIn),
           'CheckOut': Timestamp.fromDate(request.checkOut),
@@ -288,22 +308,22 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         _addNotification('Booking not found.');
         return;
       }
-      
+
       final accommodationId = bookingData['AccommodationId'] as String?;
       final roomType = bookingData['RoomType'] as String?;
       final roomCount = (bookingData['RoomCount'] as num?)?.toInt() ?? 1;
       final accommodationName = bookingData['AccommodationName'] as String?;
-      
+
       if (accommodationId == null) {
         _addNotification('Invalid booking: missing accommodation ID.');
         return;
       }
-      
+
       if (roomType == null) {
         _addNotification('Invalid booking: missing room type.');
         return;
       }
-      
+
       await _firestore.runTransaction((transaction) async {
         // STEP 1: Do ALL reads first (Firestore transaction rule)
         final accommodationRef = _firestore
@@ -314,7 +334,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         if (data == null) {
           throw Exception('Accommodation not found');
         }
-        
+
         // Calculate new room availability
         final roomTypesRaw = data['roomTypes'];
         final current =
@@ -322,20 +342,22 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                 ? (roomTypesRaw[roomType] as num?)?.toInt() ?? 0
                 : 0;
         final next = current + roomCount;
-        
+
         // STEP 2: Do ALL writes after reads
         final bookingRef = _bookingsRef.doc(bookingId);
         transaction.update(bookingRef, {
           'Status': 'Cancelled',
           'CancelledAt': FieldValue.serverTimestamp(),
         });
-        
+
         transaction.update(accommodationRef, {
           'roomTypes.$roomType': next,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       });
-      _addNotification('Reservation for ${accommodationName ?? 'accommodation'} cancelled.');
+      _addNotification(
+        'Reservation for ${accommodationName ?? 'accommodation'} cancelled.',
+      );
     } catch (e) {
       print('Error cancelling booking: $e');
       _addNotification('Failed to cancel booking. Please try again.');
@@ -486,6 +508,32 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     }
   }
 
+  Future<void> _resumePaymentFromId(String paymentId) async {
+    if (paymentId.trim().isEmpty) {
+      return;
+    }
+    try {
+      final doc = await _paymentsRef.doc(paymentId).get();
+      if (!doc.exists) {
+        _addNotification('Payment record not found.');
+        return;
+      }
+      final payment = _paymentFromDoc(doc);
+      if (payment == null) {
+        _addNotification('Unable to resume payment.');
+        return;
+      }
+      final status = payment.status.toUpperCase();
+      if (status == 'CAPTURED') {
+        _addNotification('Payment already completed.');
+        return;
+      }
+      await _retryFailedPayment(payment);
+    } catch (_) {
+      _addNotification('Unable to resume payment.');
+    }
+  }
+
   Future<void> _retryFailedPayment(AccommodationPaymentRecord payment) async {
     final item = await _fetchAccommodationById(payment.accommodationId);
     if (item == null) {
@@ -494,7 +542,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     }
     // Delete the old payment record to prevent duplicates
     await _paymentsRef.doc(payment.paymentId).delete();
-    
+
     final request = BookingRequest(
       roomType: payment.roomType,
       checkIn: payment.checkIn,
@@ -697,27 +745,28 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     // Clear all cookies to force PayPal login every time
     final cookieManager = WebViewCookieManager();
     await cookieManager.clearCookies();
-    
-    final controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: (request) {
-            final url = request.url;
-            if (url.startsWith(_paypalReturnUrl)) {
-              _capturePayPalOrder();
-              return NavigationDecision.prevent;
-            }
-            if (url.startsWith(_paypalCancelUrl)) {
-              _cancelPayPalCheckout();
-              return NavigationDecision.prevent;
-            }
-            return NavigationDecision.navigate;
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(_paymentApprovalUrl!));
-    
+
+    final controller =
+        WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onNavigationRequest: (request) {
+                final url = request.url;
+                if (url.startsWith(_paypalReturnUrl)) {
+                  _capturePayPalOrder();
+                  return NavigationDecision.prevent;
+                }
+                if (url.startsWith(_paypalCancelUrl)) {
+                  _cancelPayPalCheckout();
+                  return NavigationDecision.prevent;
+                }
+                return NavigationDecision.navigate;
+              },
+            ),
+          )
+          ..loadRequest(Uri.parse(_paymentApprovalUrl!));
+
     return controller;
   }
 
@@ -732,10 +781,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     if (_isAuthenticating) return;
     setState(() => _isAuthenticating = true);
     try {
-      await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
       if (!mounted) return;
       setState(() {
         _isAuthenticating = false;
@@ -845,7 +891,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             return ExploreView(
               filter: _filter,
               onFilterChanged: (value) => setState(() => _filter = value),
-              onBack: () => setState(() => _currentView = AccommodationView.home),
+              onBack:
+                  () => setState(() => _currentView = AccommodationView.home),
               items: items,
               onOpenDetail: _openDetail,
             );
@@ -882,7 +929,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             icon: Icons.payment,
             title: 'No payment in progress.',
             actionLabel: 'Back to My Bookings',
-            onAction: () => setState(() => _currentView = AccommodationView.trips),
+            onAction:
+                () => setState(() => _currentView = AccommodationView.trips),
           );
         }
         return Column(
@@ -925,7 +973,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                         future: _initializeWebView(),
                         builder: (context, snapshot) {
                           if (!snapshot.hasData) {
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
                           }
                           return ClipRRect(
                             borderRadius: BorderRadius.circular(12),
@@ -957,7 +1007,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             return StreamBuilder<List<AccommodationPaymentRecord>>(
               stream: _failedPaymentsStream(),
               builder: (context, paymentsSnapshot) {
-                if (paymentsSnapshot.connectionState == ConnectionState.waiting) {
+                if (paymentsSnapshot.connectionState ==
+                    ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (paymentsSnapshot.hasError) {
@@ -974,7 +1025,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                   onDeletePayment: _deletePaymentRecord,
                   onCancel: _handleCancel,
                   onExplore:
-                      () => setState(() => _currentView = AccommodationView.explore),
+                      () => setState(
+                        () => _currentView = AccommodationView.explore,
+                      ),
                 );
               },
             );
@@ -1007,10 +1060,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                 subtitle: 'Login as owner to manage your listings.',
                 actionLabel: 'Owner Login',
                 onAction:
-                    () =>
-                        setState(
-                          () => _currentView = AccommodationView.ownerLogin,
-                        ),
+                    () => setState(
+                      () => _currentView = AccommodationView.ownerLogin,
+                    ),
               );
             }
             return StreamBuilder<int>(
@@ -1020,10 +1072,11 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                   accommodations: snapshot.data ?? [],
                   ownerId: _auth.currentUser?.uid,
                   activeBookings: countSnapshot.data ?? 0,
-                  onEdit: (item) => setState(() {
-                    _editingItem = item;
-                    _currentView = AccommodationView.publish;
-                  }),
+                  onEdit:
+                      (item) => setState(() {
+                        _editingItem = item;
+                        _currentView = AccommodationView.publish;
+                      }),
                   onPublish:
                       () => setState(() {
                         _editingItem = null;
@@ -1084,8 +1137,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
               icon: Icons.work_rounded,
               active: _currentView == AccommodationView.trips,
               onTap:
-                  () =>
-                      setState(() => _currentView = AccommodationView.trips),
+                  () => setState(() => _currentView = AccommodationView.trips),
             ),
           if (!_isGuest)
             NavButton(
