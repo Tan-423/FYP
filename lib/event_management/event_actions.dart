@@ -4,12 +4,13 @@ mixin EventManagementActions on State<EventManagementScreen> {
   static const String _defaultEventImageUrl =
       'lib/event_management/event_image/Food Festival.webp';
 
-  final CollectionReference<Map<String, dynamic>> _eventsRef =
-      FirebaseFirestore.instance.collection('Event');
+  final CollectionReference<Map<String, dynamic>> _eventsRef = FirebaseFirestore
+      .instance
+      .collection('Event');
   final CollectionReference<Map<String, dynamic>> _paymentsRef =
-      FirebaseFirestore.instance.collection('eventpayment');
+      FirebaseFirestore.instance.collection('EventPayment');
   final CollectionReference<Map<String, dynamic>> _ticketsRef =
-      FirebaseFirestore.instance.collection('Tickets');
+      FirebaseFirestore.instance.collection('EventTicket');
 
   final List<TicketModel> _tickets = [];
 
@@ -76,6 +77,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
   EventModel? _pendingPaymentEvent;
   String? _paymentApprovalUrl;
   String? _paymentOrderId;
+  String? _activePaymentRecordId;
 
   String get _fallbackImageUrl => _defaultEventImageUrl;
   bool get _isOrganizer => _currentUserRole == 'organizer';
@@ -96,25 +98,28 @@ mixin EventManagementActions on State<EventManagementScreen> {
 
   Stream<List<TicketModel>> _ticketsStream() {
     final userId = _currentUserId ?? 'guest';
-    return _ticketsRef.where('UserId', isEqualTo: userId).snapshots().map(
-      (snapshot) {
-        final tickets = <TicketModel>[];
-        for (final doc in snapshot.docs) {
-          final ticket = _ticketFromDoc(doc);
-          if (ticket != null) {
-            tickets.add(ticket);
-          }
+    return _ticketsRef.where('UserId', isEqualTo: userId).snapshots().map((
+      snapshot,
+    ) {
+      final tickets = <TicketModel>[];
+      for (final doc in snapshot.docs) {
+        final ticket = _ticketFromDoc(doc);
+        if (ticket != null) {
+          tickets.add(ticket);
         }
-        return tickets;
-      },
-    );
+      }
+      return tickets;
+    });
   }
 
   Stream<List<PaymentRecord>> _failedPaymentsStream() {
     final userId = _currentUserId ?? 'guest';
     return _paymentsRef
         .where('UserId', isEqualTo: userId)
-        .where('Status', whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'])
+        .where(
+          'Status',
+          whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'],
+        )
         .snapshots()
         .map((snapshot) {
           final payments = <PaymentRecord>[];
@@ -134,37 +139,45 @@ mixin EventManagementActions on State<EventManagementScreen> {
       return null;
     }
     final normalized = _normalizedKeys(data);
-    final category = _asString(normalized['type']) ??
+    final category =
+        _asString(normalized['type']) ??
         _asString(normalized['category']) ??
         _asString(data['Type']) ??
         _asString(data['Category']) ??
         '';
-    final imageRef = _asString(normalized['imageurl']) ??
+    final imageRef =
+        _asString(normalized['imageurl']) ??
         _asString(data['ImageUrl']) ??
         _fallbackImageRefForCategory(category) ??
         _defaultEventImageUrl;
-    final name = _asString(normalized['name']) ??
+    final name =
+        _asString(normalized['name']) ??
         _asString(data['Name']) ??
         _asString(data['name']) ??
         '';
-    final location = _asString(normalized['location']) ??
+    final location =
+        _asString(normalized['location']) ??
         _asString(data['Location']) ??
         _asString(data['location']) ??
         '';
-    final organizerId = _asString(normalized['organizerid']) ??
+    final organizerId =
+        _asString(normalized['organizerid']) ??
         _asString(data['OrganizerId']) ??
         _asString(data['OrganizerID']) ??
         '';
-    final organizerName = _asString(normalized['organizername']) ??
+    final organizerName =
+        _asString(normalized['organizername']) ??
         _asString(data['OrganizerName']) ??
         _asString(normalized['organizer']) ??
         _asString(data['Organizer']) ??
         '';
-    final ticketTotal = _asInt(normalized['tickettotal']) ??
+    final ticketTotal =
+        _asInt(normalized['tickettotal']) ??
         _asInt(data['TicketTotal']) ??
         _asInt(normalized['totaltickets']) ??
         _asInt(data['TotalTickets']);
-    final ticketsRemaining = _asInt(normalized['ticketsremaining']) ??
+    final ticketsRemaining =
+        _asInt(normalized['ticketsremaining']) ??
         _asInt(data['TicketsRemaining']) ??
         _asInt(normalized['remainingtickets']) ??
         _asInt(data['RemainingTickets']) ??
@@ -176,7 +189,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
       date: _formatDateValue(normalized['date'] ?? data['Date']),
       price: _asDouble(normalized['price'] ?? data['Price']),
       category: category,
-      description: _asString(normalized['description']) ??
+      description:
+          _asString(normalized['description']) ??
           _asString(data['Description']) ??
           '',
       imageUrl: imageRef,
@@ -196,31 +210,38 @@ mixin EventManagementActions on State<EventManagementScreen> {
     final normalized = _normalizedKeys(data);
     final eventId =
         _asString(normalized['eventid']) ?? _asString(data['EventId']) ?? '';
-    final eventLocation = _asString(normalized['eventlocation']) ??
+    final eventLocation =
+        _asString(normalized['eventlocation']) ??
         _asString(data['EventLocation']) ??
         _asString(normalized['location']) ??
         _asString(data['Location']);
-    final eventDate = _asString(normalized['eventdate']) ??
+    final eventDate =
+        _asString(normalized['eventdate']) ??
         _asString(data['EventDate']) ??
         _asString(normalized['date']) ??
         _asString(data['Date']);
-    final eventImageUrl = _asString(normalized['eventimageurl']) ??
+    final eventImageUrl =
+        _asString(normalized['eventimageurl']) ??
         _asString(data['EventImageUrl']) ??
         _asString(normalized['imageurl']) ??
         _asString(data['ImageUrl']);
-    final eventName = _asString(normalized['eventname']) ??
+    final eventName =
+        _asString(normalized['eventname']) ??
         _asString(data['EventName']) ??
         _asString(normalized['name']) ??
         _asString(data['Name']);
-    final eventCategory = _asString(normalized['eventcategory']) ??
+    final eventCategory =
+        _asString(normalized['eventcategory']) ??
         _asString(data['EventCategory']) ??
         _asString(normalized['category']) ??
         _asString(data['Category']);
-    final organizerId = _asString(normalized['organizerid']) ??
+    final organizerId =
+        _asString(normalized['organizerid']) ??
         _asString(data['OrganizerId']) ??
         _asString(normalized['organizerid']) ??
         _asString(data['OrganizerID']);
-    final organizerName = _asString(normalized['organizername']) ??
+    final organizerName =
+        _asString(normalized['organizername']) ??
         _asString(data['OrganizerName']) ??
         _asString(normalized['organizer']) ??
         _asString(data['Organizer']);
@@ -240,22 +261,26 @@ mixin EventManagementActions on State<EventManagementScreen> {
       date: eventDate ?? '',
       price: _asDouble(normalized['price'] ?? data['Price']),
       category: eventCategory ?? '',
-      description: _asString(normalized['eventdescription']) ??
+      description:
+          _asString(normalized['eventdescription']) ??
           _asString(data['EventDescription']) ??
           '',
       imageUrl: eventImageUrl ?? _fallbackImageUrl,
       organizerId: organizerId ?? '',
       organizerName: organizerName ?? '',
-      ticketTotal: _asInt(normalized['tickettotal']) ??
-          _asInt(data['TicketTotal']),
-      ticketsRemaining: _asInt(normalized['ticketsremaining']) ??
+      ticketTotal:
+          _asInt(normalized['tickettotal']) ?? _asInt(data['TicketTotal']),
+      ticketsRemaining:
+          _asInt(normalized['ticketsremaining']) ??
           _asInt(data['TicketsRemaining']),
     );
     return TicketModel(
-      ticketId: _asString(normalized['ticketid']) ??
+      ticketId:
+          _asString(normalized['ticketid']) ??
           _asString(data['TicketId']) ??
           doc.id,
-      purchaseDate: _asString(normalized['purchasedate']) ??
+      purchaseDate:
+          _asString(normalized['purchasedate']) ??
           _asString(data['PurchaseDate']) ??
           '',
       event: event,
@@ -269,14 +294,18 @@ mixin EventManagementActions on State<EventManagementScreen> {
     }
     final normalized = _normalizedKeys(data);
     final paymentId =
-        _asString(normalized['paymentid']) ?? _asString(data['PaymentId']) ?? doc.id;
+        _asString(normalized['paymentid']) ??
+        _asString(data['PaymentId']) ??
+        doc.id;
     final eventId =
         _asString(normalized['eventid']) ?? _asString(data['EventId']) ?? '';
     if (eventId.isEmpty) {
       return null;
     }
     final eventName =
-        _asString(normalized['eventname']) ?? _asString(data['EventName']) ?? 'Event';
+        _asString(normalized['eventname']) ??
+        _asString(data['EventName']) ??
+        'Event';
     final amount = _asDouble(normalized['amount'] ?? data['Amount']);
     final status =
         _asString(normalized['status']) ?? _asString(data['Status']) ?? '';
@@ -400,7 +429,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
     return events.where((event) {
       final matchesCategory =
           _activeCategory == 'All' || event.category == _activeCategory;
-      final matchesSearch = event.name.toLowerCase().contains(query) ||
+      final matchesSearch =
+          event.name.toLowerCase().contains(query) ||
           event.location.toLowerCase().contains(query);
       return matchesCategory && matchesSearch;
     }).toList();
@@ -474,15 +504,14 @@ mixin EventManagementActions on State<EventManagementScreen> {
       if (user == null) {
         throw FirebaseAuthException(code: 'user-not-found');
       }
-      final organizerProfile =
-          await _organizersRef.doc(user.uid).get();
+      final organizerProfile = await _organizersRef.doc(user.uid).get();
       final profileData = organizerProfile.data();
-      final profileName =
-          _asString(profileData?['name'])?.trim();
+      final profileName = _asString(profileData?['name'])?.trim();
       final displayName = user.displayName?.trim();
-      final derivedName = (profileName != null && profileName.isNotEmpty)
-          ? profileName
-          : (displayName != null && displayName.isNotEmpty)
+      final derivedName =
+          (profileName != null && profileName.isNotEmpty)
+              ? profileName
+              : (displayName != null && displayName.isNotEmpty)
               ? displayName
               : _nameFromEmail(user.email ?? email);
       if (!mounted) {
@@ -513,8 +542,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       if (mounted) {
         setState(() => _isAuthenticating = false);
       }
-      _showNotification('Unable to sign in. Please try again.',
-          isError: true);
+      _showNotification('Unable to sign in. Please try again.', isError: true);
     }
   }
 
@@ -540,8 +568,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
   Future<void> _joinEvent(EventModel event) async {
     final alreadyJoined = _tickets.any((ticket) => ticket.event.id == event.id);
     if (alreadyJoined) {
-      _showNotification('You already have a ticket for this event.',
-          isError: true);
+      _showNotification(
+        'You already have a ticket for this event.',
+        isError: true,
+      );
       return;
     }
     final remaining = event.ticketsRemaining;
@@ -568,8 +598,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       return;
     }
     final ticketId = _generateTicketId();
-    final purchaseDate =
-        DateTime.now().toLocal().toString().split(' ').first;
+    final purchaseDate = DateTime.now().toLocal().toString().split(' ').first;
     final ticketData = <String, dynamic>{
       'TicketId': ticketId,
       'EventId': event.id,
@@ -591,13 +620,19 @@ mixin EventManagementActions on State<EventManagementScreen> {
     try {
       await _ticketsRef.doc(ticketId).set(ticketData);
     } catch (_) {
-      _showNotification('Failed to save ticket. Please try again.',
-          isError: true);
+      _showNotification(
+        'Failed to save ticket. Please try again.',
+        isError: true,
+      );
       return;
     }
     setState(() {
       _tickets.add(
-        TicketModel(ticketId: ticketId, purchaseDate: purchaseDate, event: event),
+        TicketModel(
+          ticketId: ticketId,
+          purchaseDate: purchaseDate,
+          event: event,
+        ),
       );
       _view = EventView.tickets;
     });
@@ -613,7 +648,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
         return false;
       }
       final normalized = _normalizedKeys(data);
-      final remaining = _asInt(normalized['ticketsremaining']) ??
+      final remaining =
+          _asInt(normalized['ticketsremaining']) ??
           _asInt(data['TicketsRemaining']) ??
           _asInt(normalized['remainingtickets']) ??
           _asInt(data['RemainingTickets']);
@@ -637,7 +673,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
     }
   }
 
-  Future<void> _startPayPalCheckout(EventModel event) async {
+  Future<void> _startPayPalCheckout(
+    EventModel event, {
+    String? paymentRecordId,
+  }) async {
     if (_isCreatingPayment) {
       return;
     }
@@ -645,6 +684,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       _pendingPaymentEvent = event;
       _paymentApprovalUrl = null;
       _paymentOrderId = null;
+      _activePaymentRecordId = paymentRecordId;
       _isCreatingPayment = true;
       _view = EventView.payment;
     });
@@ -672,8 +712,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
       if (approvalUrl == null || orderId == null) {
         throw Exception('Missing approval data');
       }
-      await _paymentsRef.doc(orderId).set({
-        'PaymentId': orderId,
+      final recordId = paymentRecordId ?? orderId;
+      await _paymentsRef.doc(recordId).set({
+        'PaymentId': recordId,
+        'PayPalOrderId': orderId,
         'EventId': event.id,
         'EventName': event.name,
         'UserId': _currentUserId ?? 'guest',
@@ -681,13 +723,14 @@ mixin EventManagementActions on State<EventManagementScreen> {
         'Currency': 'MYR',
         'Status': 'CREATED',
         'CreatedAt': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
       if (!mounted) {
         return;
       }
       setState(() {
         _paymentApprovalUrl = approvalUrl;
         _paymentOrderId = orderId;
+        _activePaymentRecordId = recordId;
         _isCreatingPayment = false;
       });
     } catch (_) {
@@ -697,8 +740,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
           _view = EventView.detail;
         });
       }
-      _showNotification('Unable to start PayPal checkout.',
-          isError: true);
+      _showNotification('Unable to start PayPal checkout.', isError: true);
     }
   }
 
@@ -726,23 +768,29 @@ mixin EventManagementActions on State<EventManagementScreen> {
       }
       final event = _pendingPaymentEvent;
       final orderId = _paymentOrderId;
+      final recordId = _activePaymentRecordId;
       setState(() {
         _isCapturingPayment = false;
         _paymentApprovalUrl = null;
         _paymentOrderId = null;
         _pendingPaymentEvent = null;
+        _activePaymentRecordId = null;
       });
       if (event != null) {
-        if (orderId != null) {
-          await _paymentsRef.doc(orderId).set({
-            'PaymentId': orderId,
+        if (recordId != null && recordId.isNotEmpty) {
+          await _paymentsRef.doc(recordId).set({
+            'PaymentId': recordId,
+            'PayPalOrderId': orderId,
             'Status': 'CAPTURED',
             'CapturedAt': FieldValue.serverTimestamp(),
             'PayerEmail': payerEmail,
           }, SetOptions(merge: true));
         }
-        await _confirmTicketPurchase(event,
-            paymentId: orderId, payerEmail: payerEmail);
+        await _confirmTicketPurchase(
+          event,
+          paymentId: recordId ?? orderId,
+          payerEmail: payerEmail,
+        );
       } else {
         _selectView(EventView.explore);
       }
@@ -750,15 +798,48 @@ mixin EventManagementActions on State<EventManagementScreen> {
       if (mounted) {
         setState(() => _isCapturingPayment = false);
       }
-      if (_paymentOrderId != null) {
-        _paymentsRef.doc(_paymentOrderId).set({
-          'PaymentId': _paymentOrderId,
+      final recordId = _activePaymentRecordId;
+      if (recordId != null && recordId.isNotEmpty) {
+        _paymentsRef.doc(recordId).set({
+          'PaymentId': recordId,
+          'PayPalOrderId': _paymentOrderId,
           'Status': 'FAILED',
           'UpdatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       }
-      _showNotification('Payment not completed. Please try again.',
-          isError: true);
+      _showNotification(
+        'Payment not completed. Please try again.',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _resumePaymentFromId(String paymentId) async {
+    if (paymentId.trim().isEmpty) {
+      return;
+    }
+    if (_isOrganizer || !_isLoggedIn) {
+      _loginAsTraveler();
+    }
+    try {
+      final doc = await _paymentsRef.doc(paymentId).get();
+      if (!doc.exists) {
+        _showNotification('Payment record not found.', isError: true);
+        return;
+      }
+      final payment = _paymentFromDoc(doc);
+      if (payment == null) {
+        _showNotification('Unable to resume payment.', isError: true);
+        return;
+      }
+      final status = payment.status.toUpperCase();
+      if (status == 'CAPTURED') {
+        _showNotification('Payment already completed.');
+        return;
+      }
+      await _retryFailedPayment(payment);
+    } catch (_) {
+      _showNotification('Unable to resume payment.', isError: true);
     }
   }
 
@@ -773,7 +854,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       'Status': 'RETRYING',
       'UpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-    _startPayPalCheckout(event);
+    _startPayPalCheckout(event, paymentRecordId: payment.paymentId);
   }
 
   Future<void> _cancelFailedPayment(PaymentRecord payment) async {
@@ -791,9 +872,11 @@ mixin EventManagementActions on State<EventManagementScreen> {
   }
 
   void _cancelPayPalCheckout() {
-    if (_paymentOrderId != null) {
-      _paymentsRef.doc(_paymentOrderId).set({
-        'PaymentId': _paymentOrderId,
+    final recordId = _activePaymentRecordId;
+    if (recordId != null && recordId.isNotEmpty) {
+      _paymentsRef.doc(recordId).set({
+        'PaymentId': recordId,
+        'PayPalOrderId': _paymentOrderId,
         'Status': 'CANCELLED',
         'UpdatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -802,6 +885,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       _pendingPaymentEvent = null;
       _paymentApprovalUrl = null;
       _paymentOrderId = null;
+      _activePaymentRecordId = null;
       _isCreatingPayment = false;
       _isCapturingPayment = false;
       _view = EventView.detail;
@@ -812,23 +896,24 @@ mixin EventManagementActions on State<EventManagementScreen> {
   Future<bool> _confirmCancelTicket() async {
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel ticket?'),
-        content: const Text(
-          'This will delete your ticket and payment record. '
-          'A refund will be processed if applicable.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep ticket'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Cancel ticket?'),
+            content: const Text(
+              'This will delete your ticket and payment record. '
+              'A refund will be processed if applicable.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Keep ticket'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Cancel ticket'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Cancel ticket'),
-          ),
-        ],
-      ),
     );
     return result ?? false;
   }
@@ -842,7 +927,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
     try {
       final ticketDoc = await _ticketsRef.doc(ticketId).get();
       final data = ticketDoc.data();
-      final normalized = data == null ? <String, dynamic>{} : _normalizedKeys(data);
+      final normalized =
+          data == null ? <String, dynamic>{} : _normalizedKeys(data);
       final paymentId =
           _asString(normalized['paymentid']) ?? _asString(data?['PaymentId']);
       final eventId =
@@ -862,20 +948,23 @@ mixin EventManagementActions on State<EventManagementScreen> {
             return;
           }
           final normalizedEvent = _normalizedKeys(eventData);
-          final remaining = _asInt(normalizedEvent['ticketsremaining']) ??
+          final remaining =
+              _asInt(normalizedEvent['ticketsremaining']) ??
               _asInt(eventData['TicketsRemaining']) ??
               _asInt(normalizedEvent['remainingtickets']) ??
               _asInt(eventData['RemainingTickets']);
-          final total = _asInt(normalizedEvent['tickettotal']) ??
+          final total =
+              _asInt(normalizedEvent['tickettotal']) ??
               _asInt(eventData['TicketTotal']) ??
               _asInt(normalizedEvent['totaltickets']) ??
               _asInt(eventData['TotalTickets']);
           if (remaining == null) {
             return;
           }
-          final nextRemaining = total == null
-              ? remaining + 1
-              : (remaining + 1 > total ? total : remaining + 1);
+          final nextRemaining =
+              total == null
+                  ? remaining + 1
+                  : (remaining + 1 > total ? total : remaining + 1);
           transaction.update(eventRef, {'TicketsRemaining': nextRemaining});
         });
       }
@@ -887,8 +976,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
       }
       _showNotification('Ticket cancelled. Refund will be processed.');
     } catch (_) {
-      _showNotification('Failed to cancel ticket. Please try again.',
-          isError: true);
+      _showNotification(
+        'Failed to cancel ticket. Please try again.',
+        isError: true,
+      );
     }
   }
 
@@ -911,14 +1002,16 @@ mixin EventManagementActions on State<EventManagementScreen> {
       _descriptionController.text = event.description;
       _ticketTotalController.text =
           event.ticketTotal == null ? '' : event.ticketTotal.toString();
-      _ticketRemainingController.text = event.ticketsRemaining == null
-          ? ''
-          : event.ticketsRemaining.toString();
+      _ticketRemainingController.text =
+          event.ticketsRemaining == null
+              ? ''
+              : event.ticketsRemaining.toString();
       _newEventCategory = event.category.isEmpty ? 'Food' : event.category;
       _newEventDate = event.date;
-      _newEventImageRef = event.imageUrl.startsWith('http')
-          ? null
-          : event.imageUrl.isNotEmpty
+      _newEventImageRef =
+          event.imageUrl.startsWith('http')
+              ? null
+              : event.imageUrl.isNotEmpty
               ? event.imageUrl
               : null;
       _newEventImageFile = null;
@@ -996,9 +1089,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
       }, SetOptions(merge: true));
 
       // Denormalized update for event organizer name.
-      final snapshot = await _eventsRef
-          .where('OrganizerId', isEqualTo: _currentUserId)
-          .get();
+      final snapshot =
+          await _eventsRef
+              .where('OrganizerId', isEqualTo: _currentUserId)
+              .get();
       final batch = FirebaseFirestore.instance.batch();
       for (final doc in snapshot.docs) {
         batch.update(doc.reference, {'OrganizerName': name});
@@ -1074,9 +1168,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
     final String ticketRemainingText = _ticketRemainingController.text.trim();
     final int? ticketTotal =
         ticketTotalText.isEmpty ? null : int.tryParse(ticketTotalText);
-    final int? ticketRemainingInput = ticketRemainingText.isEmpty
-        ? null
-        : int.tryParse(ticketRemainingText);
+    final int? ticketRemainingInput =
+        ticketRemainingText.isEmpty ? null : int.tryParse(ticketRemainingText);
     if (ticketTotalText.isNotEmpty && ticketTotal == null) {
       _showNotification('Total tickets must be a number.', isError: true);
       setState(() => _isPublishing = false);
@@ -1105,24 +1198,27 @@ mixin EventManagementActions on State<EventManagementScreen> {
     final DateTime? parsedDate = DateTime.tryParse(_newEventDate);
     final isEditing = _editingEventId != null;
     final eventId =
-        isEditing ? _editingEventId! : DateTime.now().millisecondsSinceEpoch.toString();
+        isEditing
+            ? _editingEventId!
+            : DateTime.now().millisecondsSinceEpoch.toString();
     final uploadedImageUrl = await _uploadEventImage(eventId);
     if (_newEventImageFile != null && uploadedImageUrl == null) {
       if (mounted) {
         setState(() => _isPublishing = false);
       }
-      _showNotification('Failed to upload image. Please try again.',
-          isError: true);
+      _showNotification(
+        'Failed to upload image. Please try again.',
+        isError: true,
+      );
       return;
     }
-    final imageRef = (_newEventImageRef == null ||
-            _newEventImageRef!.trim().isEmpty)
-        ? (_fallbackImageRefForCategory(_newEventCategory) ??
-            _defaultEventImageUrl)
-        : _newEventImageRef!.trim();
-    final resolvedImageUrl = uploadedImageUrl ??
-        _editingEventImageUrl ??
-        imageRef;
+    final imageRef =
+        (_newEventImageRef == null || _newEventImageRef!.trim().isEmpty)
+            ? (_fallbackImageRefForCategory(_newEventCategory) ??
+                _defaultEventImageUrl)
+            : _newEventImageRef!.trim();
+    final resolvedImageUrl =
+        uploadedImageUrl ?? _editingEventImageUrl ?? imageRef;
     int? ticketsRemaining;
     if (!isEditing) {
       ticketsRemaining = ticketRemainingInput ?? ticketTotal;
@@ -1147,7 +1243,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
       'ID': eventId,
       'Name': _titleController.text.trim(),
       'Location': _locationController.text.trim(),
-      'Date': parsedDate == null ? _newEventDate : Timestamp.fromDate(parsedDate),
+      'Date':
+          parsedDate == null ? _newEventDate : Timestamp.fromDate(parsedDate),
       'Price': price,
       'Type': _newEventCategory,
       'Description': _descriptionController.text.trim(),
@@ -1177,14 +1274,18 @@ mixin EventManagementActions on State<EventManagementScreen> {
         _view = _isOrganizer ? EventView.manage : EventView.explore;
       });
       _showNotification(
-        isEditing ? 'Event updated successfully!' : 'Event published successfully!',
+        isEditing
+            ? 'Event updated successfully!'
+            : 'Event published successfully!',
       );
     } catch (error) {
       if (mounted) {
         setState(() => _isPublishing = false);
       }
-      _showNotification('Failed to publish event. Please try again.',
-          isError: true);
+      _showNotification(
+        'Failed to publish event. Please try again.',
+        isError: true,
+      );
     }
   }
 
