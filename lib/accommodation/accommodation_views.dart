@@ -86,7 +86,8 @@ class _HomeViewState extends State<HomeView> {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           IconButton(
-                            onPressed: () => setSheetState(() => tempCount += 1),
+                            onPressed:
+                                () => setSheetState(() => tempCount += 1),
                             icon: const Icon(Icons.add_circle_outline),
                           ),
                         ],
@@ -322,11 +323,13 @@ class _HomeViewState extends State<HomeView> {
 
 class OwnerAuthView extends StatelessWidget {
   const OwnerAuthView({
+    required this.onBack,
     required this.onContinueAsGuest,
     required this.onOwnerLogin,
     super.key,
   });
 
+  final VoidCallback onBack;
   final VoidCallback onContinueAsGuest;
   final VoidCallback onOwnerLogin;
 
@@ -337,6 +340,15 @@ class OwnerAuthView extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         child: Column(
           children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: onBack,
+                icon: const Icon(Icons.chevron_left),
+                label: const Text('Back to Main Menu'),
+              ),
+            ),
+            const SizedBox(height: 8),
             const Icon(Icons.apartment, size: 64, color: Color(0xFF2563EB)),
             const SizedBox(height: 16),
             const Text(
@@ -586,7 +598,9 @@ class ExploreView extends StatelessWidget {
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.white.withOpacity(0.9),
-                                          borderRadius: BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         child: Row(
                                           children: [
@@ -616,7 +630,9 @@ class ExploreView extends StatelessWidget {
                                         ),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF2563EB),
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                         child: Text(
                                           item.type.toUpperCase(),
@@ -978,9 +994,7 @@ class _BookingViewState extends State<BookingView> {
 
   List<_RoomTypeOption> _roomOptions(AccommodationItem item) {
     final entries =
-        item.roomTypes.entries
-            .where((entry) => entry.value > 0)
-            .toList();
+        item.roomTypes.entries.where((entry) => entry.value > 0).toList();
     if (entries.isEmpty) {
       return const [
         _RoomTypeOption(
@@ -1024,7 +1038,8 @@ class _BookingViewState extends State<BookingView> {
 
   String _descriptionForType(String label) {
     final key = label.toLowerCase();
-    if (key.contains('suite')) return 'Separate living area + premium amenities';
+    if (key.contains('suite'))
+      return 'Separate living area + premium amenities';
     if (key.contains('deluxe')) return 'More space + city view';
     if (key.contains('family')) return 'Ideal for families and groups';
     return 'Comfortable essentials for 2 guests';
@@ -1108,14 +1123,14 @@ class _BookingViewState extends State<BookingView> {
   void _submitPayment(double basePrice) {
     final name = _guestNameController.text.trim();
     final email = _guestEmailController.text.trim();
-    
+
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your full name.')),
       );
       return;
     }
-    
+
     // Validate name: no digits allowed
     if (name.contains(RegExp(r'[0-9]'))) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1123,14 +1138,14 @@ class _BookingViewState extends State<BookingView> {
       );
       return;
     }
-    
+
     if (email.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter your email address.')),
       );
       return;
     }
-    
+
     // Validate email format
     final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
     if (!emailRegex.hasMatch(email)) {
@@ -1141,7 +1156,9 @@ class _BookingViewState extends State<BookingView> {
     }
     if (_checkIn == null || _checkOut == null || _nights <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select check-in and check-out dates.')),
+        const SnackBar(
+          content: Text('Please select check-in and check-out dates.'),
+        ),
       );
       return;
     }
@@ -1304,18 +1321,19 @@ class _BookingViewState extends State<BookingView> {
               borderSide: BorderSide.none,
             ),
           ),
-          items: options
-              .map(
-                (option) => DropdownMenuItem(
-                  value: option.label,
-                  child: Text(
-                    option.available == null
-                        ? option.label
-                        : '${option.label} (${option.available} available)',
-                  ),
-                ),
-              )
-              .toList(),
+          items:
+              options
+                  .map(
+                    (option) => DropdownMenuItem(
+                      value: option.label,
+                      child: Text(
+                        option.available == null
+                            ? option.label
+                            : '${option.label} (${option.available} available)',
+                      ),
+                    ),
+                  )
+                  .toList(),
           onChanged: (value) {
             if (value == null) return;
             setState(() => _selectedRoomLabel = value);
@@ -1642,9 +1660,7 @@ class TripsView extends StatelessWidget {
                     children: [
                       ElevatedButton(
                         onPressed: () => onRetryPayment(payment),
-                        child: Text(
-                          payment.status == 'CANCELLED' ? 'Try Again' : 'Continue Payment',
-                        ),
+                        child: const Text('Try Again'),
                       ),
                       const SizedBox(width: 8),
                       if (payment.status != 'CANCELLED')
@@ -1799,7 +1815,8 @@ class TripsView extends StatelessWidget {
                                     ],
                                   ),
                                   Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Text(
                                         'Check-out',
@@ -2090,11 +2107,10 @@ class OwnerView extends StatelessWidget {
           )
         else
           ...listings.map((item) {
-            final roomSummary =
-                item.roomTypes.entries
-                    .where((entry) => entry.value > 0)
-                    .map((entry) => '${entry.key}: ${entry.value}')
-                    .join(', ');
+            final roomSummary = item.roomTypes.entries
+                .where((entry) => entry.value > 0)
+                .map((entry) => '${entry.key}: ${entry.value}')
+                .join(', ');
             return Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(12),
@@ -2132,36 +2148,36 @@ class OwnerView extends StatelessWidget {
                                 ),
                               ),
                             ),
-                          Row(
-                            children: [
-                              IconButton(
-                                onPressed: () => onEdit(item),
-                                icon: const Icon(
-                                  Icons.edit,
-                                  size: 16,
-                                  color: Color(0xFF2563EB),
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFDCFCE7),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Text(
-                                  'PUBLISHED',
-                                  style: TextStyle(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF15803D),
+                            Row(
+                              children: [
+                                IconButton(
+                                  onPressed: () => onEdit(item),
+                                  icon: const Icon(
+                                    Icons.edit,
+                                    size: 16,
+                                    color: Color(0xFF2563EB),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFDCFCE7),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'PUBLISHED',
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                         const SizedBox(height: 6),
@@ -2174,15 +2190,15 @@ class OwnerView extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                      if (roomSummary.isNotEmpty)
-                        Text(
-                          roomSummary,
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.black45,
+                        if (roomSummary.isNotEmpty)
+                          Text(
+                            roomSummary,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: Colors.black45,
+                            ),
                           ),
-                        ),
-                      if (roomSummary.isNotEmpty) const SizedBox(height: 6),
+                        if (roomSummary.isNotEmpty) const SizedBox(height: 6),
                         Row(
                           children: [
                             const Icon(
@@ -2262,14 +2278,12 @@ class PublishFormViewState extends State<PublishFormView> {
           (item.roomTypes['Standard Room'] ?? 0).toString();
       _deluxeRoomController.text =
           (item.roomTypes['Deluxe Room'] ?? 0).toString();
-      _suiteRoomController.text =
-          (item.roomTypes['Suite'] ?? 0).toString();
+      _suiteRoomController.text = (item.roomTypes['Suite'] ?? 0).toString();
       _standardCapController.text =
           (item.roomCapacities['Standard Room'] ?? 2).toString();
       _deluxeCapController.text =
           (item.roomCapacities['Deluxe Room'] ?? 3).toString();
-      _suiteCapController.text =
-          (item.roomCapacities['Suite'] ?? 4).toString();
+      _suiteCapController.text = (item.roomCapacities['Suite'] ?? 4).toString();
       _extraBedFeeController.text = item.extraBedFee.toStringAsFixed(0);
     } else {
       _standardCapController.text = '2';
@@ -2303,7 +2317,8 @@ class PublishFormViewState extends State<PublishFormView> {
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
             .toList();
-    final standardCount = int.tryParse(_standardRoomController.text.trim()) ?? 0;
+    final standardCount =
+        int.tryParse(_standardRoomController.text.trim()) ?? 0;
     final deluxeCount = int.tryParse(_deluxeRoomController.text.trim()) ?? 0;
     final suiteCount = int.tryParse(_suiteRoomController.text.trim()) ?? 0;
     final standardCap = int.tryParse(_standardCapController.text.trim()) ?? 2;

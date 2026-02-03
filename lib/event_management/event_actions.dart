@@ -457,10 +457,19 @@ mixin EventManagementActions on State<EventManagementScreen> {
     });
   }
 
+  void _exitToMainMenu() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    _selectView(EventView.auth);
+  }
+
   void _loginAsTraveler() {
     setState(() {
       _currentUserRole = 'traveler';
-      _currentUserId = 'traveler';
+      _currentUserId = _auth.currentUser?.uid ?? 'traveler';
       _currentUserName = 'Traveler';
       _view = EventView.explore;
     });
@@ -554,7 +563,6 @@ mixin EventManagementActions on State<EventManagementScreen> {
       _selectedEvent = null;
       _view = EventView.auth;
     });
-    _auth.signOut();
     _showNotification('Logged out successfully.');
   }
 

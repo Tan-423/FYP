@@ -7,9 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../accommodation/accommodation_screen.dart';
-import '../event_management/event_management.dart';
-
 part 'payment_models.dart';
 part 'payment_views.dart';
 
@@ -40,7 +37,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   late final CollectionReference<Map<String, dynamic>> _eventPaymentsRef =
-      _firestore.collection('eventpayment');
+      _firestore.collection('EventPayment');
   late final CollectionReference<Map<String, dynamic>>
   _accommodationPaymentsRef = _firestore.collection('AccommodationPayments');
   static const List<String> _pendingStatuses = [
@@ -121,31 +118,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _handleContinueCheckout(BookingItem booking) async {
-    if (booking.canRetry) {
-      await _startRetryCheckout(booking);
-      return;
-    }
-    final retryPaymentId = booking.canRetry ? booking.id : null;
-    if (booking.source == 'event') {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => EventManagementScreen(retryPaymentId: retryPaymentId),
-        ),
-      );
-      return;
-    }
-    if (booking.source == 'accommodation') {
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => AccommodationScreen(retryPaymentId: retryPaymentId),
-        ),
-      );
-      return;
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Unable to open checkout module.')),
-    );
+    await _startRetryCheckout(booking);
   }
 
   double _asDouble(dynamic value) {
