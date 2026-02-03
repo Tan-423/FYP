@@ -41,6 +41,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   bool _isGuest = false;
   bool _isCreatingPayment = false;
   bool _isCapturingPayment = false;
+  bool _isOwnerLoggedIn = false;
   AccommodationItem? _pendingPaymentItem;
   BookingRequest? _pendingBookingRequest;
   String? _paymentApprovalUrl;
@@ -133,6 +134,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   }
 
   Stream<int> _ownerActiveBookingsCount() {
+    if (!_isOwnerLoggedIn) return Stream.value(0);
     final ownerId = _auth.currentUser?.uid;
     if (ownerId == null) return Stream.value(0);
     return _bookingsRef
@@ -195,6 +197,15 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           });
           return bookings;
         });
+  }
+
+  void _exitToMainMenu() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    setState(() => _currentView = AccommodationView.auth);
   }
 
   void _addNotification(String message) {
@@ -365,7 +376,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   }
 
   Future<void> _handlePublish(NewPropertyForm form) async {
-    if (_auth.currentUser == null) {
+    if (!_isOwnerLoggedIn) {
       _addNotification('Please login as owner to publish.');
       setState(() => _currentView = AccommodationView.ownerLogin);
       return;
@@ -379,7 +390,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     }
     if (_isPublishing) return;
     setState(() => _isPublishing = true);
-    final ownerId = _auth.currentUser?.uid;
+    final ownerId = _isOwnerLoggedIn ? _auth.currentUser?.uid : null;
     final wasEditing = _editingItem != null;
     try {
       final payload = {
@@ -785,6 +796,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       if (!mounted) return;
       setState(() {
         _isAuthenticating = false;
+        _isOwnerLoggedIn = true;
         _currentView = AccommodationView.owner;
       });
       _addNotification('Owner login successful.');
@@ -800,9 +812,9 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   }
 
   Future<void> _logoutOwner() async {
-    await _auth.signOut();
     if (!mounted) return;
     setState(() {
+      _isOwnerLoggedIn = false;
       _isGuest = false;
       _currentView = AccommodationView.auth;
     });
@@ -841,9 +853,11 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     switch (_currentView) {
       case AccommodationView.auth:
         return OwnerAuthView(
+          onBack: _exitToMainMenu,
           onContinueAsGuest:
               () => setState(() {
                 _isGuest = true;
+                _isOwnerLoggedIn = false;
                 _currentView = AccommodationView.home;
               }),
           onOwnerLogin:
@@ -857,7 +871,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           showPassword: _showOwnerPassword,
           onTogglePassword:
               () => setState(() => _showOwnerPassword = !_showOwnerPassword),
-          onBack: () => setState(() => _currentView = AccommodationView.auth),
+          onBack: _exitToMainMenu,
           onLogin: _handleOwnerLogin,
         );
       case AccommodationView.home:
@@ -1041,6 +1055,17 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             subtitle: 'Guest mode cannot access owner tools.',
           );
         }
+        if (!_isOwnerLoggedIn) {
+          return InfoEmptyState(
+            icon: Icons.lock_outline,
+            title: 'Owner access required.',
+            subtitle: 'Please login as owner to manage listings.',
+            actionLabel: 'Owner Login',
+            onAction:
+                () =>
+                    setState(() => _currentView = AccommodationView.ownerLogin),
+          );
+        }
         return StreamBuilder<List<AccommodationItem>>(
           stream: _accommodationsStream(),
           builder: (context, snapshot) {
@@ -1053,24 +1078,12 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                 title: 'Unable to load listings.',
               );
             }
-            if (_auth.currentUser == null) {
-              return InfoEmptyState(
-                icon: Icons.lock_outline,
-                title: 'Owner access required.',
-                subtitle: 'Login as owner to manage your listings.',
-                actionLabel: 'Owner Login',
-                onAction:
-                    () => setState(
-                      () => _currentView = AccommodationView.ownerLogin,
-                    ),
-              );
-            }
             return StreamBuilder<int>(
               stream: _ownerActiveBookingsCount(),
               builder: (context, countSnapshot) {
                 return OwnerView(
                   accommodations: snapshot.data ?? [],
-                  ownerId: _auth.currentUser?.uid,
+                  ownerId: _isOwnerLoggedIn ? _auth.currentUser?.uid : null,
                   activeBookings: countSnapshot.data ?? 0,
                   onEdit:
                       (item) => setState(() {
@@ -1131,7 +1144,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
             onTap:
                 () => setState(() => _currentView = AccommodationView.explore),
           ),
-          if (_auth.currentUser == null)
+          if (!_isOwnerLoggedIn)
             NavButton(
               label: 'Trips',
               icon: Icons.work_rounded,
@@ -1145,20 +1158,19 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
               icon: Icons.add_circle_outline_rounded,
               active: _currentView == AccommodationView.owner,
               onTap: () {
-                if (_auth.currentUser == null) {
+                if (!_isOwnerLoggedIn) {
                   setState(() => _currentView = AccommodationView.ownerLogin);
                 } else {
                   setState(() => _currentView = AccommodationView.owner);
                 }
               },
             ),
-          if (_auth.currentUser != null)
-            NavButton(
-              label: 'Logout',
-              icon: Icons.logout,
-              active: false,
-              onTap: _logoutOwner,
-            ),
+          NavButton(
+            label: 'Logout',
+            icon: Icons.logout,
+            active: false,
+            onTap: _logoutOwner,
+          ),
         ],
       ),
     );

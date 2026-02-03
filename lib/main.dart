@@ -512,15 +512,21 @@ class ProfileView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = const [
-      _ProfileItem(icon: Icons.person_rounded, label: 'Personal Info'),
-      _ProfileItem(icon: Icons.credit_card_rounded, label: 'Payment Methods'),
-      _ProfileItem(icon: Icons.settings_rounded, label: 'Settings'),
-      _ProfileItem(icon: Icons.translate_rounded, label: 'Language'),
+    final items = [
+      const _ProfileItem(icon: Icons.person_rounded, label: 'Personal Info'),
+      const _ProfileItem(
+        icon: Icons.credit_card_rounded,
+        label: 'Payment Methods',
+      ),
+      const _ProfileItem(icon: Icons.settings_rounded, label: 'Settings'),
+      const _ProfileItem(icon: Icons.translate_rounded, label: 'Language'),
       _ProfileItem(
         icon: Icons.logout_rounded,
         label: 'Log Out',
         isDestructive: true,
+        onTap: () async {
+          await FirebaseAuth.instance.signOut();
+        },
       ),
     ];
 
@@ -1060,11 +1066,13 @@ class _ProfileItem {
     required this.icon,
     required this.label,
     this.isDestructive = false,
+    this.onTap,
   });
 
   final IconData icon;
   final String label;
   final bool isDestructive;
+  final Future<void> Function()? onTap;
 }
 
 class _ProfileTile extends StatelessWidget {
@@ -1086,7 +1094,12 @@ class _ProfileTile extends StatelessWidget {
           Icons.chevron_right_rounded,
           color: Colors.black38,
         ),
-        onTap: () {},
+        onTap:
+            item.onTap == null
+                ? null
+                : () async {
+                  await item.onTap?.call();
+                },
       ),
     );
   }

@@ -56,6 +56,15 @@ mixin EventManagementViews
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _exitToMainMenu,
+                icon: const Icon(Icons.chevron_left),
+                label: const Text('Back to Main Menu'),
+              ),
+            ),
+            const SizedBox(height: 8),
             const Icon(Icons.event, size: 64, color: Colors.blue),
             const SizedBox(height: 16),
             const Text(
@@ -102,7 +111,7 @@ mixin EventManagementViews
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextButton.icon(
-              onPressed: () => _selectView(EventView.auth),
+              onPressed: _exitToMainMenu,
               icon: const Icon(Icons.chevron_left),
               label: const Text('Back'),
             ),

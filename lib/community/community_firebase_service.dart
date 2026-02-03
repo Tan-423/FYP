@@ -33,10 +33,21 @@ class CommunityFirebaseService {
   }
 
   Stream<List<CommunityGroup>> streamGroups() {
-    return _groupsRef
-        .orderBy('createdAt', descending: true)
+    final publicStream = _groupsRef
+        .where('type', isEqualTo: GroupType.public.name)
         .snapshots()
         .map((snapshot) => snapshot.docs.map(CommunityGroup.fromDoc).toList());
+    final userId = currentUserId;
+    if (userId == 'guest') {
+      return publicStream;
+    }
+
+    final memberStream = _groupsRef
+        .where('memberIds', arrayContains: userId)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(CommunityGroup.fromDoc).toList());
+
+    return _mergeGroupStreams(publicStream, memberStream);
   }
 
   Stream<List<CommunityPoll>> streamPolls() {
@@ -199,7 +210,10 @@ class CommunityFirebaseService {
       membersCount: 1,
       createdAt: DateTime.now(),
     );
-    await groupRef.set(group.toMap());
+    await groupRef.set({
+      ...group.toMap(),
+      'memberIds': [currentUserId],
+    });
     await groupRef.collection('members').doc(currentUserId).set({
       'joinedAt': DateTime.now(),
       'userName': _currentUserName,
@@ -220,13 +234,65 @@ class CommunityFirebaseService {
     final memberRef = groupRef.collection('members').doc(currentUserId);
     await _db.runTransaction((transaction) async {
       final memberSnapshot = await transaction.get(memberRef);
-      if (memberSnapshot.exists) return;
+      if (memberSnapshot.exists) {
+        transaction.update(groupRef, {
+          'memberIds': FieldValue.arrayUnion([currentUserId]),
+        });
+        return;
+      }
       transaction.set(memberRef, {
         'joinedAt': DateTime.now(),
         'userName': _currentUserName,
       });
-      transaction.update(groupRef, {'membersCount': FieldValue.increment(1)});
+      transaction.update(groupRef, {
+        'membersCount': FieldValue.increment(1),
+        'memberIds': FieldValue.arrayUnion([currentUserId]),
+      });
     });
+  }
+
+  Stream<List<CommunityGroup>> _mergeGroupStreams(
+    Stream<List<CommunityGroup>> publicStream,
+    Stream<List<CommunityGroup>> memberStream,
+  ) {
+    late StreamController<List<CommunityGroup>> controller;
+    StreamSubscription<List<CommunityGroup>>? publicSub;
+    StreamSubscription<List<CommunityGroup>>? memberSub;
+    var publicGroups = <CommunityGroup>[];
+    var memberGroups = <CommunityGroup>[];
+
+    void emit() {
+      final merged = <String, CommunityGroup>{};
+      for (final group in publicGroups) {
+        merged[group.id] = group;
+      }
+      for (final group in memberGroups) {
+        merged[group.id] = group;
+      }
+      final mergedList =
+          merged.values.toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      controller.add(mergedList);
+    }
+
+    controller = StreamController<List<CommunityGroup>>(
+      onListen: () {
+        publicSub = publicStream.listen((groups) {
+          publicGroups = groups;
+          emit();
+        }, onError: controller.addError);
+        memberSub = memberStream.listen((groups) {
+          memberGroups = groups;
+          emit();
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await publicSub?.cancel();
+        await memberSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   Future<void> sendMessage(String groupId, String text) async {

@@ -193,7 +193,6 @@ class _BookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isRetry = item.canRetry;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -291,14 +290,10 @@ class _BookingCard extends StatelessWidget {
                     vertical: 10,
                   ),
                 ),
-                icon: Icon(
-                  isRetry
-                      ? Icons.refresh_rounded
-                      : Icons.arrow_right_alt_rounded,
-                ),
-                label: Text(
-                  isRetry ? 'Try Again' : 'Continue',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text(
+                  'Try Again',
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -678,12 +673,19 @@ class _PayPalCheckoutView extends StatefulWidget {
 }
 
 class _PayPalCheckoutViewState extends State<_PayPalCheckoutView> {
-  late final WebViewController _controller;
+  WebViewController? _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller =
+    _initializeWebView();
+  }
+
+  Future<void> _initializeWebView() async {
+    final cookieManager = WebViewCookieManager();
+    await cookieManager.clearCookies();
+    if (!mounted) return;
+    final controller =
         WebViewController()
           ..setJavaScriptMode(JavaScriptMode.unrestricted)
           ..setNavigationDelegate(
@@ -703,6 +705,7 @@ class _PayPalCheckoutViewState extends State<_PayPalCheckoutView> {
             ),
           )
           ..loadRequest(Uri.parse(widget.approvalUrl));
+    setState(() => _controller = controller);
   }
 
   @override
@@ -733,7 +736,12 @@ class _PayPalCheckoutViewState extends State<_PayPalCheckoutView> {
             ],
           ),
         ),
-        Expanded(child: WebViewWidget(controller: _controller)),
+        Expanded(
+          child:
+              _controller == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : WebViewWidget(controller: _controller!),
+        ),
       ],
     );
   }
@@ -997,4 +1005,3 @@ class _ReceiptRow extends StatelessWidget {
     );
   }
 }
-
