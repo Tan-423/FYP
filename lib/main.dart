@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'auth/login_screen.dart';
 import 'accommodation/accommodation_screen.dart';
 import 'bill_tracking/bill_tracking_screen.dart';
 import 'chatbot/chatbot_screen.dart';
@@ -10,6 +12,7 @@ import 'payment/payment_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  await FirebaseAuth.instance.signOut();
   runApp(const FypApp());
 }
 
@@ -26,7 +29,29 @@ class FypApp extends StatelessWidget {
         colorSchemeSeed: Colors.indigo,
         fontFamilyFallback: const ['Segoe UI', 'Roboto'],
       ),
-      home: const MainShell(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData) {
+          return const MainShell();
+        }
+        return const LoginScreen();
+      },
     );
   }
 }
@@ -166,41 +191,46 @@ class _MainShellState extends State<MainShell> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => ModuleSheet(
-        module: module,
-        onOpenModule: () {
-          Navigator.of(context).pop();
-          if (module.id == 'bills') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const BillTrackingScreen()),
-            );
-        } else if (module.id == 'payment') {
-          Navigator.of(rootContext).push(
-            MaterialPageRoute(builder: (_) => const PaymentScreen()),
-          );
-          } else if (module.id == 'events') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const EventManagementScreen()),
-            );
-          } else if (module.id == 'chatbot') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const ChatbotScreen()),
-            );
-          } else if (module.id == 'accommodation') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const AccommodationScreen()),
-            );
-          } else if (module.id == 'community') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const CommunityScreen()),
-            );
-          } else {
-            ScaffoldMessenger.of(rootContext).showSnackBar(
-              SnackBar(content: Text('${module.label} module coming soon')),
-            );
-          }
-        },
-      ),
+      builder:
+          (context) => ModuleSheet(
+            module: module,
+            onOpenModule: () {
+              Navigator.of(context).pop();
+              if (module.id == 'bills') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const BillTrackingScreen()),
+                );
+              } else if (module.id == 'payment') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const PaymentScreen()),
+                );
+              } else if (module.id == 'events') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(
+                    builder: (_) => const EventManagementScreen(),
+                  ),
+                );
+              } else if (module.id == 'chatbot') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+                );
+              } else if (module.id == 'accommodation') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AccommodationScreen(),
+                  ),
+                );
+              } else if (module.id == 'community') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const CommunityScreen()),
+                );
+              } else {
+                ScaffoldMessenger.of(rootContext).showSnackBar(
+                  SnackBar(content: Text('${module.label} module coming soon')),
+                );
+              }
+            },
+          ),
     );
   }
 
@@ -530,7 +560,11 @@ class ProfileView extends StatelessWidget {
 }
 
 class ModuleSheet extends StatelessWidget {
-  const ModuleSheet({super.key, required this.module, required this.onOpenModule});
+  const ModuleSheet({
+    super.key,
+    required this.module,
+    required this.onOpenModule,
+  });
 
   final ModuleItem module;
   final VoidCallback onOpenModule;
@@ -1057,4 +1091,3 @@ class _ProfileTile extends StatelessWidget {
     );
   }
 }
-
