@@ -297,9 +297,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
     });
   }
 
+  String _currentUserName() {
+    final user = _auth.currentUser;
+    final display = user?.displayName?.trim();
+    if (display != null && display.isNotEmpty) {
+      return display;
+    }
+    final email = user?.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      return email.split('@').first;
+    }
+    return 'Traveler';
+  }
+
   Future<void> _showReceiptDialog({TransactionItem? historyItem}) {
     final booking = _selectedBooking;
     final item = historyItem;
+    final receiptType =
+        (item?.source ?? booking?.source) == 'accommodation'
+            ? 'Accommodation'
+            : 'Event';
 
     return showDialog<void>(
       context: context,
@@ -346,9 +363,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'WanderEase',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+                Text(
+                  receiptType,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -361,7 +381,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _ReceiptRow(label: 'Recipient:', value: 'Tan Lai Heng'),
+                _ReceiptRow(label: 'Recipient:', value: _currentUserName()),
                 _ReceiptRow(
                   label: 'Service:',
                   value: item?.name ?? booking?.name ?? '-',
