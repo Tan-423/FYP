@@ -9,6 +9,18 @@ import 'event_management/event_management.dart';
 import 'community/community_screen.dart';
 import 'payment/payment_screen.dart';
 
+String _displayNameFor(User? user) {
+  final display = user?.displayName?.trim();
+  if (display != null && display.isNotEmpty) {
+    return display;
+  }
+  final email = user?.email?.trim();
+  if (email != null && email.isNotEmpty) {
+    return email.split('@').first;
+  }
+  return 'Traveler';
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -507,13 +519,67 @@ class TripsView extends StatelessWidget {
   }
 }
 
-class ProfileView extends StatelessWidget {
+class ProfileView extends StatefulWidget {
   const ProfileView({super.key});
+
+  @override
+  State<ProfileView> createState() => _ProfileViewState();
+}
+
+class _ProfileViewState extends State<ProfileView> {
+  final TextEditingController _nameController = TextEditingController();
+  bool _isSaving = false;
+  String? _statusMessage;
+  String _lastLoadedName = '';
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _syncName(User? user) {
+    final name = _displayNameFor(user);
+    final currentText = _nameController.text.trim();
+    if (currentText.isEmpty || currentText == _lastLoadedName) {
+      _nameController.text = name;
+      _lastLoadedName = name;
+    }
+  }
+
+  Future<void> _saveName(User? user) async {
+    if (_isSaving) return;
+    final trimmed = _nameController.text.trim();
+    if (trimmed.isEmpty) {
+      setState(() => _statusMessage = 'Name cannot be empty.');
+      return;
+    }
+    if (user == null) {
+      setState(() => _statusMessage = 'No signed-in user.');
+      return;
+    }
+    setState(() {
+      _isSaving = true;
+      _statusMessage = null;
+    });
+    try {
+      await user.updateDisplayName(trimmed);
+      await user.reload();
+      final refreshed = FirebaseAuth.instance.currentUser;
+      _lastLoadedName = _displayNameFor(refreshed);
+      setState(() => _statusMessage = 'Name updated.');
+    } catch (_) {
+      setState(() => _statusMessage = 'Unable to update name.');
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final items = [
-      const _ProfileItem(icon: Icons.person_rounded, label: 'Personal Info'),
       const _ProfileItem(
         icon: Icons.credit_card_rounded,
         label: 'Payment Methods',
@@ -530,37 +596,102 @@ class ProfileView extends StatelessWidget {
       ),
     ];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          const CircleAvatar(
-            radius: 44,
-            backgroundImage: NetworkImage(
-              'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex',
-            ),
-            backgroundColor: Color(0xFFE5E7EB),
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      builder: (context, snapshot) {
+        final user = snapshot.data ?? FirebaseAuth.instance.currentUser;
+        _syncName(user);
+        final displayName = _displayNameFor(user);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              const CircleAvatar(
+                radius: 44,
+                backgroundImage: NetworkImage(
+                  'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex',
+                ),
+                backgroundColor: Color(0xFFE5E7EB),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                displayName,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Level 12 • Globe Trotter',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFFF59E0B),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Personal Info',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _nameController,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Display name',
+                          prefixIcon: Icon(Icons.person_rounded),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: _isSaving ? null : () => _saveName(user),
+                        child:
+                            _isSaving
+                                ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : const Text('Save Name'),
+                      ),
+                      if (_statusMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _statusMessage!,
+                          style: TextStyle(
+                            color:
+                                _statusMessage == 'Name updated.'
+                                    ? Colors.green
+                                    : Colors.redAccent,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              for (final item in items) _ProfileTile(item: item),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            'Alex Johnson',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Level 12 • Globe Trotter',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFFF59E0B),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 20),
-          for (final item in items) _ProfileTile(item: item),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -700,11 +831,19 @@ class _Header extends StatelessWidget {
                   context,
                 ).textTheme.bodySmall?.copyWith(color: Colors.black54),
               ),
-              Text(
-                'Alex Johnson',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              StreamBuilder<User?>(
+                stream: FirebaseAuth.instance.userChanges(),
+                builder: (context, snapshot) {
+                  final displayName = _displayNameFor(
+                    snapshot.data ?? FirebaseAuth.instance.currentUser,
+                  );
+                  return Text(
+                    displayName,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  );
+                },
               ),
             ],
           ),
