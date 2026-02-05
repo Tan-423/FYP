@@ -21,6 +21,9 @@ class AccommodationScreen extends StatefulWidget {
 }
 
 class _AccommodationScreenState extends State<AccommodationScreen> {
+  static const String _emailJsServiceId = 'service_duet1ff';
+  static const String _emailJsTemplateId = 'template_ifgo794';
+  static const String _emailJsPublicKey = 'IUJGANEaedb8T2n1N';
   bool _didResumePayment = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -65,6 +68,130 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     AccommodationView.auth,
     AccommodationView.ownerLogin,
   };
+
+  String _escapeHtml(String value) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+
+  Future<void> _sendEmailViaEmailJs({
+    required String to,
+    required String subject,
+    required String html,
+    String? text,
+  }) async {
+    final trimmedTo = to.trim();
+    if (trimmedTo.isEmpty) {
+      return;
+    }
+    final response = await http.post(
+      Uri.parse('https://api.emailjs.com/api/v1.0/email/send'),
+      headers: {
+        'origin': 'http://localhost',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'service_id': _emailJsServiceId,
+        'template_id': _emailJsTemplateId,
+        'user_id': _emailJsPublicKey,
+        'template_params': {
+          'to_email': trimmedTo,
+          'subject': subject,
+          'message_html': html,
+          if (text != null) 'message_text': text,
+        },
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('EmailJS send failed');
+    }
+  }
+
+  Future<void> _sendAccommodationReceiptEmail({
+    required AccommodationItem item,
+    required BookingRequest request,
+    required String paymentId,
+    required double amount,
+    String? payerEmail,
+  }) async {
+    final email = (_auth.currentUser?.email ?? payerEmail ?? '').trim();
+    if (email.isEmpty) {
+      return;
+    }
+    final rows = <String>[
+      '<tr><td>Accommodation</td><td>${_escapeHtml(item.name)}</td></tr>',
+      if (item.location.isNotEmpty)
+        '<tr><td>Location</td><td>${_escapeHtml(item.location)}</td></tr>',
+      '<tr><td>Room Type</td><td>${_escapeHtml(request.roomType)}</td></tr>',
+      '<tr><td>Rooms</td><td>${request.roomCount}</td></tr>',
+      '<tr><td>Guests</td><td>${request.peopleCount + request.childCount + request.infantCount}</td></tr>',
+      '<tr><td>Check-in</td><td>${_escapeHtml(_formatDate(request.checkIn))}</td></tr>',
+      '<tr><td>Check-out</td><td>${_escapeHtml(_formatDate(request.checkOut))}</td></tr>',
+      '<tr><td>Nights</td><td>${request.nights}</td></tr>',
+      '<tr><td>Payment ID</td><td>${_escapeHtml(paymentId)}</td></tr>',
+      '<tr><td>Total Paid</td><td>MYR ${amount.toStringAsFixed(2)}</td></tr>',
+    ];
+    final html = '''
+<h2>Accommodation Payment Receipt</h2>
+<p>Thank you for your payment. Here are your receipt details:</p>
+<table cellpadding="6" cellspacing="0" border="1">
+${rows.join()}
+</table>
+''';
+    final text = 'Receipt for ${item.name}. '
+        'Payment ID: $paymentId. Total: MYR ${amount.toStringAsFixed(2)}.';
+    await _sendEmailViaEmailJs(
+      to: email,
+      subject: 'Accommodation Payment Receipt',
+      html: html,
+      text: text,
+    );
+  }
+
+  Future<void> _sendAccommodationCancellationEmail({
+    required String bookingId,
+    required String accommodationName,
+    required String location,
+    required String checkIn,
+    required String checkOut,
+    required int roomCount,
+    String? payerEmail,
+  }) async {
+    final email = (_auth.currentUser?.email ?? payerEmail ?? '').trim();
+    if (email.isEmpty) {
+      return;
+    }
+    final rows = <String>[
+      '<tr><td>Accommodation</td><td>${_escapeHtml(accommodationName)}</td></tr>',
+      if (location.isNotEmpty)
+        '<tr><td>Location</td><td>${_escapeHtml(location)}</td></tr>',
+      if (checkIn.isNotEmpty)
+        '<tr><td>Check-in</td><td>${_escapeHtml(checkIn)}</td></tr>',
+      if (checkOut.isNotEmpty)
+        '<tr><td>Check-out</td><td>${_escapeHtml(checkOut)}</td></tr>',
+      '<tr><td>Rooms</td><td>$roomCount</td></tr>',
+      '<tr><td>Booking ID</td><td>${_escapeHtml(bookingId)}</td></tr>',
+    ];
+    final html = '''
+<h2>Booking Cancellation</h2>
+<p>Your booking has been cancelled. If eligible, a refund will be processed.</p>
+<table cellpadding="6" cellspacing="0" border="1">
+${rows.join()}
+</table>
+''';
+    final text = 'Your booking for $accommodationName has been cancelled. '
+        'Booking ID: $bookingId.';
+    await _sendEmailViaEmailJs(
+      to: email,
+      subject: 'Booking Cancellation Confirmation',
+      html: html,
+      text: text,
+    );
+  }
 
   @override
   void initState() {
@@ -225,6 +352,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     BookingRequest request, {
     String? paymentId,
     String? payerEmail,
+    bool sendReceipt = false,
   }) async {
     setState(() => _isProcessing = true);
     await Future.delayed(const Duration(milliseconds: 1500));
@@ -307,6 +435,22 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       _isProcessing = false;
       _currentView = AccommodationView.trips;
     });
+    if (sendReceipt &&
+        paymentId != null &&
+        paymentId.trim().isNotEmpty &&
+        request.totalPrice > 0) {
+      try {
+        await _sendAccommodationReceiptEmail(
+          item: item,
+          request: request,
+          paymentId: paymentId,
+          amount: request.totalPrice,
+          payerEmail: payerEmail,
+        );
+      } catch (_) {
+        // Ignore email failures.
+      }
+    }
     _addNotification('Booking confirmed for ${item.name}!');
   }
 
@@ -324,6 +468,16 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       final roomType = bookingData['RoomType'] as String?;
       final roomCount = (bookingData['RoomCount'] as num?)?.toInt() ?? 1;
       final accommodationName = bookingData['AccommodationName'] as String?;
+      final accommodationLocation =
+          (bookingData['AccommodationLocation'] as String?) ?? '';
+      final payerEmail = (bookingData['PayerEmail'] as String?) ?? '';
+      final paymentId = (bookingData['PaymentId'] as String?) ?? '';
+      final checkInValue = bookingData['CheckIn'];
+      final checkOutValue = bookingData['CheckOut'];
+      final checkIn =
+          checkInValue is Timestamp ? _formatDate(checkInValue.toDate()) : '';
+      final checkOut =
+          checkOutValue is Timestamp ? _formatDate(checkOutValue.toDate()) : '';
 
       if (accommodationId == null) {
         _addNotification('Invalid booking: missing accommodation ID.');
@@ -356,22 +510,71 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
 
         // STEP 2: Do ALL writes after reads
         final bookingRef = _bookingsRef.doc(bookingId);
-        transaction.update(bookingRef, {
-          'Status': 'Cancelled',
-          'CancelledAt': FieldValue.serverTimestamp(),
-        });
+        transaction.delete(bookingRef);
 
         transaction.update(accommodationRef, {
           'roomTypes.$roomType': next,
           'updatedAt': FieldValue.serverTimestamp(),
         });
       });
+      try {
+        await _sendAccommodationCancellationEmail(
+          bookingId: bookingId,
+          accommodationName: accommodationName ?? 'Accommodation',
+          location: accommodationLocation,
+          checkIn: checkIn,
+          checkOut: checkOut,
+          roomCount: roomCount,
+          payerEmail: payerEmail,
+        );
+      } catch (_) {
+        // Ignore email failures.
+      }
+      if (paymentId.trim().isNotEmpty) {
+        try {
+          await _paymentsRef.doc(paymentId).delete();
+        } catch (_) {
+          // Ignore payment cleanup failures.
+        }
+      }
       _addNotification(
         'Reservation for ${accommodationName ?? 'accommodation'} cancelled.',
       );
     } catch (e) {
       print('Error cancelling booking: $e');
       _addNotification('Failed to cancel booking. Please try again.');
+    }
+  }
+
+  Future<void> _confirmCancelBooking(String bookingId) async {
+    if (!mounted) return;
+    final shouldCancel = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('Cancel booking?'),
+            content: const Text(
+              'Are you sure you want to cancel this booking? '
+              'This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Keep Booking'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Cancel Booking'),
+              ),
+            ],
+          ),
+    );
+    if (shouldCancel == true) {
+      await _handleCancel(bookingId);
     }
   }
 
@@ -625,6 +828,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
         'PaymentId': orderId,
         'AccommodationId': item.id,
         'AccommodationName': item.name,
+        'AccommodationLocation': item.location,
         'UserId': _auth.currentUser?.uid ?? 'guest',
         'Amount': request.totalPrice,
         'Currency': 'MYR',
@@ -704,6 +908,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
           request,
           paymentId: orderId,
           payerEmail: payerEmail,
+          sendReceipt: true,
         );
       } else {
         setState(() => _currentView = AccommodationView.explore);
@@ -1037,7 +1242,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
                   onRetryPayment: _retryFailedPayment,
                   onCancelPayment: _cancelFailedPayment,
                   onDeletePayment: _deletePaymentRecord,
-                  onCancel: _handleCancel,
+                  onCancel: _confirmCancelBooking,
                   onExplore:
                       () => setState(
                         () => _currentView = AccommodationView.explore,

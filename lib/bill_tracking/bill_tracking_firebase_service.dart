@@ -12,31 +12,44 @@ class BillTrackingFirebaseService {
   // ==================== GROUPS ====================
 
   /// Get all groups as a stream (real-time updates)
-  Stream<List<BillGroup>> getGroupsStream() {
+  Stream<List<BillGroup>> getGroupsStream(String ownerId) {
     return _firestore
         .collection(_groupsCollection)
-        .orderBy('name')
+        .where('ownerId', isEqualTo: ownerId)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => BillGroup.fromMap(doc.data()))
-              .toList();
+          final groups =
+              snapshot.docs
+                  .map((doc) => BillGroup.fromMap(doc.data()))
+                  .toList();
+          groups.sort((a, b) => a.name.compareTo(b.name));
+          return groups;
         });
   }
 
   /// Get all groups once
-  Future<List<BillGroup>> getGroups() async {
+  Future<List<BillGroup>> getGroups(String ownerId) async {
     final snapshot =
-        await _firestore.collection(_groupsCollection).orderBy('name').get();
-    return snapshot.docs.map((doc) => BillGroup.fromMap(doc.data())).toList();
+        await _firestore
+            .collection(_groupsCollection)
+            .where('ownerId', isEqualTo: ownerId)
+            .get();
+    final groups =
+        snapshot.docs.map((doc) => BillGroup.fromMap(doc.data())).toList();
+    groups.sort((a, b) => a.name.compareTo(b.name));
+    return groups;
   }
 
   /// Get a specific group by ID
-  Future<BillGroup?> getGroup(String groupId) async {
+  Future<BillGroup?> getGroup(String groupId, {String? ownerId}) async {
     final doc =
         await _firestore.collection(_groupsCollection).doc(groupId).get();
     if (!doc.exists) return null;
-    return BillGroup.fromMap(doc.data()!);
+    final group = BillGroup.fromMap(doc.data()!);
+    if (ownerId != null && group.ownerId != ownerId) {
+      return null;
+    }
+    return group;
   }
 
   /// Create a new group
@@ -63,10 +76,11 @@ class BillTrackingFirebaseService {
   // ==================== BILLS ====================
 
   /// Get all bills for a specific group as a stream (real-time updates)
-  Stream<List<BillModel>> getBillsStream(String groupId) {
+  Stream<List<BillModel>> getBillsStream(String groupId, String ownerId) {
     return _firestore
         .collection(_billsCollection)
         .where('groupId', isEqualTo: groupId)
+        .where('ownerId', isEqualTo: ownerId)
         .snapshots()
         .map((snapshot) {
           final bills =
@@ -79,11 +93,12 @@ class BillTrackingFirebaseService {
   }
 
   /// Get all bills for a specific group once
-  Future<List<BillModel>> getBills(String groupId) async {
+  Future<List<BillModel>> getBills(String groupId, String ownerId) async {
     final snapshot =
         await _firestore
             .collection(_billsCollection)
             .where('groupId', isEqualTo: groupId)
+            .where('ownerId', isEqualTo: ownerId)
             .get();
     final bills =
         snapshot.docs.map((doc) => BillModel.fromMap(doc.data())).toList();
@@ -92,23 +107,30 @@ class BillTrackingFirebaseService {
   }
 
   /// Get all bills across all groups (for history view)
-  Stream<List<BillModel>> getAllBillsStream() {
+  Stream<List<BillModel>> getAllBillsStream(String ownerId) {
     return _firestore
         .collection(_billsCollection)
-        .orderBy('date', descending: true)
+        .where('ownerId', isEqualTo: ownerId)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => BillModel.fromMap(doc.data()))
-              .toList();
+          final bills =
+              snapshot.docs
+                  .map((doc) => BillModel.fromMap(doc.data()))
+                  .toList();
+          bills.sort((a, b) => b.date.compareTo(a.date));
+          return bills;
         });
   }
 
   /// Get a specific bill by ID
-  Future<BillModel?> getBill(String billId) async {
+  Future<BillModel?> getBill(String billId, {String? ownerId}) async {
     final doc = await _firestore.collection(_billsCollection).doc(billId).get();
     if (!doc.exists) return null;
-    return BillModel.fromMap(doc.data()!);
+    final bill = BillModel.fromMap(doc.data()!);
+    if (ownerId != null && bill.ownerId != ownerId) {
+      return null;
+    }
+    return bill;
   }
 
   /// Create a new bill
@@ -133,11 +155,12 @@ class BillTrackingFirebaseService {
   }
 
   /// Delete all bills for a specific group (useful when deleting a group)
-  Future<void> deleteBillsByGroup(String groupId) async {
+  Future<void> deleteBillsByGroup(String groupId, String ownerId) async {
     final snapshot =
         await _firestore
             .collection(_billsCollection)
             .where('groupId', isEqualTo: groupId)
+            .where('ownerId', isEqualTo: ownerId)
             .get();
 
     final batch = _firestore.batch();

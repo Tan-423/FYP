@@ -1,6 +1,9 @@
 part of 'event_management.dart';
 
 mixin EventManagementActions on State<EventManagementScreen> {
+  static const String _emailJsServiceId = 'service_duet1ff';
+  static const String _emailJsTemplateId = 'template_ifgo794';
+  static const String _emailJsPublicKey = 'IUJGANEaedb8T2n1N';
   static const String _defaultEventImageUrl =
       'lib/event_management/event_image/Food Festival.webp';
 
@@ -407,6 +410,146 @@ mixin EventManagementActions on State<EventManagementScreen> {
     return fileName.substring(0, dotIndex);
   }
 
+  Future<WebViewController> _initializePayPalWebView(
+    String approvalUrl,
+  ) async {
+    final cookieManager = WebViewCookieManager();
+    await cookieManager.clearCookies();
+    final controller =
+        WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onNavigationRequest: (request) {
+                final url = request.url;
+                if (url.startsWith(_paypalReturnUrl)) {
+                  _capturePayPalOrder();
+                  return NavigationDecision.prevent;
+                }
+                if (url.startsWith(_paypalCancelUrl)) {
+                  _cancelPayPalCheckout();
+                  return NavigationDecision.prevent;
+                }
+                return NavigationDecision.navigate;
+              },
+            ),
+          )
+          ..loadRequest(Uri.parse(approvalUrl));
+    return controller;
+  }
+
+  String _escapeHtml(String value) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+
+  Future<void> _sendEmailViaEmailJs({
+    required String to,
+    required String subject,
+    required String html,
+    String? text,
+  }) async {
+    final trimmedTo = to.trim();
+    if (trimmedTo.isEmpty) {
+      return;
+    }
+    final response = await http.post(
+      Uri.parse('https://api.emailjs.com/api/v1.0/email/send'),
+      headers: {
+        'origin': 'http://localhost',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'service_id': _emailJsServiceId,
+        'template_id': _emailJsTemplateId,
+        'user_id': _emailJsPublicKey,
+        'template_params': {
+          'to_email': trimmedTo,
+          'subject': subject,
+          'message_html': html,
+          if (text != null) 'message_text': text,
+        },
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('EmailJS send failed');
+    }
+  }
+
+  Future<void> _sendEventReceiptEmail({
+    required EventModel event,
+    required String paymentId,
+    required double amount,
+    String? payerEmail,
+  }) async {
+    final email = (_auth.currentUser?.email ?? payerEmail ?? '').trim();
+    if (email.isEmpty) {
+      return;
+    }
+    final rows = <String>[
+      '<tr><td>Event</td><td>${_escapeHtml(event.name)}</td></tr>',
+      if (event.date.isNotEmpty)
+        '<tr><td>Event Date</td><td>${_escapeHtml(event.date)}</td></tr>',
+      if (event.location.isNotEmpty)
+        '<tr><td>Event Location</td><td>${_escapeHtml(event.location)}</td></tr>',
+      '<tr><td>Payment ID</td><td>${_escapeHtml(paymentId)}</td></tr>',
+      '<tr><td>Total Paid</td><td>MYR ${amount.toStringAsFixed(2)}</td></tr>',
+    ];
+    final html = '''
+<h2>Event Payment Receipt</h2>
+<p>Thank you for your payment. Here are your receipt details:</p>
+<table cellpadding="6" cellspacing="0" border="1">
+${rows.join()}
+</table>
+''';
+    final text = 'Receipt for ${event.name}. '
+        'Payment ID: $paymentId. Total: MYR ${amount.toStringAsFixed(2)}.';
+    await _sendEmailViaEmailJs(
+      to: email,
+      subject: 'Event Payment Receipt',
+      html: html,
+      text: text,
+    );
+  }
+
+  Future<void> _sendEventCancellationEmail({
+    required EventModel event,
+    required String ticketId,
+    String? payerEmail,
+  }) async {
+    final email = (_auth.currentUser?.email ?? payerEmail ?? '').trim();
+    if (email.isEmpty) {
+      return;
+    }
+    final rows = <String>[
+      '<tr><td>Event</td><td>${_escapeHtml(event.name)}</td></tr>',
+      if (event.date.isNotEmpty)
+        '<tr><td>Event Date</td><td>${_escapeHtml(event.date)}</td></tr>',
+      if (event.location.isNotEmpty)
+        '<tr><td>Event Location</td><td>${_escapeHtml(event.location)}</td></tr>',
+      '<tr><td>Ticket ID</td><td>${_escapeHtml(ticketId)}</td></tr>',
+    ];
+    final html = '''
+<h2>Ticket Cancellation</h2>
+<p>Your ticket has been cancelled. If eligible, a refund will be processed.</p>
+<table cellpadding="6" cellspacing="0" border="1">
+${rows.join()}
+</table>
+''';
+    final text = 'Your ticket for ${event.name} has been cancelled. '
+        'Ticket ID: $ticketId.';
+    await _sendEmailViaEmailJs(
+      to: email,
+      subject: 'Ticket Cancellation Confirmation',
+      html: html,
+      text: text,
+    );
+  }
+
   String _formatDateValue(dynamic value) {
     DateTime? dateTime;
     if (value is Timestamp) {
@@ -599,6 +742,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     EventModel event, {
     String? paymentId,
     String? payerEmail,
+    bool sendReceipt = false,
   }) async {
     final reserved = await _reserveTicket(event.id);
     if (!reserved) {
@@ -644,6 +788,18 @@ mixin EventManagementActions on State<EventManagementScreen> {
       );
       _view = EventView.tickets;
     });
+    if (sendReceipt && paymentId != null && paymentId.trim().isNotEmpty) {
+      try {
+        await _sendEventReceiptEmail(
+          event: event,
+          paymentId: paymentId,
+          amount: event.price,
+          payerEmail: payerEmail,
+        );
+      } catch (_) {
+        // Ignore email failures.
+      }
+    }
     _showNotification('Successfully joined ${event.name}!');
   }
 
@@ -726,6 +882,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
         'PayPalOrderId': orderId,
         'EventId': event.id,
         'EventName': event.name,
+        'EventDate': event.date,
+        'EventLocation': event.location,
         'UserId': _currentUserId ?? 'guest',
         'Amount': event.price,
         'Currency': 'MYR',
@@ -798,6 +956,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
           event,
           paymentId: recordId ?? orderId,
           payerEmail: payerEmail,
+          sendReceipt: true,
         );
       } else {
         _selectView(EventView.explore);
@@ -939,6 +1098,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
           data == null ? <String, dynamic>{} : _normalizedKeys(data);
       final paymentId =
           _asString(normalized['paymentid']) ?? _asString(data?['PaymentId']);
+      final payerEmail =
+          _asString(normalized['payeremail']) ?? _asString(data?['PayerEmail']);
       final eventId =
           _asString(normalized['eventid']) ?? _asString(data?['EventId']);
 
@@ -981,6 +1142,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
         setState(() {
           _tickets.removeWhere((item) => item.ticketId == ticketId);
         });
+      }
+      try {
+        await _sendEventCancellationEmail(
+          event: ticket.event,
+          ticketId: ticket.ticketId,
+          payerEmail: payerEmail,
+        );
+      } catch (_) {
+        // Ignore email failures.
       }
       _showNotification('Ticket cancelled. Refund will be processed.');
     } catch (_) {
