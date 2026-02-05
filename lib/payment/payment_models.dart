@@ -11,6 +11,19 @@ class BookingItem {
     required this.source,
     this.status,
     this.createdAt,
+    this.eventDate,
+    this.eventLocation,
+    this.eventId,
+    this.accommodationId,
+    this.accommodationLocation,
+    this.roomType,
+    this.roomCount,
+    this.peopleCount,
+    this.childCount,
+    this.infantCount,
+    this.checkIn,
+    this.checkOut,
+    this.nights,
   });
 
   final String id;
@@ -22,6 +35,19 @@ class BookingItem {
   final String source;
   final String? status;
   final DateTime? createdAt;
+  final String? eventDate;
+  final String? eventLocation;
+  final String? eventId;
+  final String? accommodationId;
+  final String? accommodationLocation;
+  final String? roomType;
+  final int? roomCount;
+  final int? peopleCount;
+  final int? childCount;
+  final int? infantCount;
+  final String? checkIn;
+  final String? checkOut;
+  final int? nights;
 
   bool get canRetry {
     final normalized = (status ?? '').toUpperCase();
@@ -45,6 +71,11 @@ class BookingItem {
       source: 'event',
       status: (data['Status'] ?? '').toString(),
       createdAt: createdAt,
+      eventDate: _dateStringFromValue(data['EventDate'] ?? data['Date']),
+      eventLocation: _stringFrom(
+        data['EventLocation'] ?? data['Location'],
+      ),
+      eventId: _stringFrom(data['EventId']),
     );
   }
 
@@ -64,6 +95,16 @@ class BookingItem {
       source: 'accommodation',
       status: (data['Status'] ?? '').toString(),
       createdAt: createdAt ?? checkIn,
+      accommodationId: _stringFrom(data['AccommodationId']),
+      accommodationLocation: _stringFrom(data['AccommodationLocation']),
+      roomType: _stringFrom(data['RoomType']),
+      roomCount: _intFrom(data['RoomCount']),
+      peopleCount: _intFrom(data['PeopleCount']),
+      childCount: _intFrom(data['ChildCount']),
+      infantCount: _intFrom(data['InfantCount']),
+      checkIn: _dateStringFromValue(data['CheckIn']),
+      checkOut: _dateStringFromValue(data['CheckOut']),
+      nights: _intFrom(data['Nights']),
     );
   }
 
@@ -89,6 +130,43 @@ class BookingItem {
     return '${date.year}-$month-$day';
   }
 
+  static String _dateStringFromValue(dynamic value) {
+    if (value == null) {
+      return '';
+    }
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) {
+        return '';
+      }
+      final parsed = DateTime.tryParse(trimmed);
+      return parsed == null ? trimmed : _dateStringFrom(parsed);
+    }
+    final parsed = _timestampFrom(value);
+    return _dateStringFrom(parsed);
+  }
+
+  static String _stringFrom(dynamic value) {
+    if (value == null) {
+      return '';
+    }
+    final text = value.toString().trim();
+    if (text.isEmpty || text.toLowerCase() == 'null') {
+      return '';
+    }
+    return text;
+  }
+
+  static int? _intFrom(dynamic value) {
+    if (value == null) {
+      return null;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value.toString());
+  }
+
   static double _asDouble(dynamic value) {
     if (value is num) {
       return value.toDouble();
@@ -107,6 +185,19 @@ class TransactionItem {
     required this.method,
     required this.source,
     this.createdAt,
+    this.eventDate,
+    this.eventLocation,
+    this.eventId,
+    this.accommodationId,
+    this.accommodationLocation,
+    this.roomType,
+    this.roomCount,
+    this.peopleCount,
+    this.childCount,
+    this.infantCount,
+    this.checkIn,
+    this.checkOut,
+    this.nights,
   });
 
   final String id;
@@ -117,6 +208,19 @@ class TransactionItem {
   final String method;
   final String source;
   final DateTime? createdAt;
+  final String? eventDate;
+  final String? eventLocation;
+  final String? eventId;
+  final String? accommodationId;
+  final String? accommodationLocation;
+  final String? roomType;
+  final int? roomCount;
+  final int? peopleCount;
+  final int? childCount;
+  final int? infantCount;
+  final String? checkIn;
+  final String? checkOut;
+  final int? nights;
 
   String get sourceLabel =>
       source == 'accommodation' ? 'Accommodation' : 'Event';
@@ -137,6 +241,13 @@ class TransactionItem {
       method: 'PayPal',
       source: 'event',
       createdAt: dateSource,
+      eventDate: BookingItem._dateStringFromValue(
+        data['EventDate'] ?? data['Date'],
+      ),
+      eventLocation: BookingItem._stringFrom(
+        data['EventLocation'] ?? data['Location'],
+      ),
+      eventId: BookingItem._stringFrom(data['EventId']),
     );
   }
 
@@ -156,6 +267,18 @@ class TransactionItem {
       method: 'PayPal',
       source: 'accommodation',
       createdAt: dateSource,
+      accommodationId: BookingItem._stringFrom(data['AccommodationId']),
+      accommodationLocation: BookingItem._stringFrom(
+        data['AccommodationLocation'],
+      ),
+      roomType: BookingItem._stringFrom(data['RoomType']),
+      roomCount: BookingItem._intFrom(data['RoomCount']),
+      peopleCount: BookingItem._intFrom(data['PeopleCount']),
+      childCount: BookingItem._intFrom(data['ChildCount']),
+      infantCount: BookingItem._intFrom(data['InfantCount']),
+      checkIn: BookingItem._dateStringFromValue(data['CheckIn']),
+      checkOut: BookingItem._dateStringFromValue(data['CheckOut']),
+      nights: BookingItem._intFrom(data['Nights']),
     );
   }
 }

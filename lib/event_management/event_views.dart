@@ -805,30 +805,19 @@ mixin EventManagementViews
           child:
               _paymentApprovalUrl == null
                   ? const Center(child: CircularProgressIndicator())
-                  : ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: WebViewWidget(
-                      controller:
-                          WebViewController()
-                            ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                            ..setNavigationDelegate(
-                              NavigationDelegate(
-                                onNavigationRequest: (request) {
-                                  final url = request.url;
-                                  if (url.startsWith(_paypalReturnUrl)) {
-                                    _capturePayPalOrder();
-                                    return NavigationDecision.prevent;
-                                  }
-                                  if (url.startsWith(_paypalCancelUrl)) {
-                                    _cancelPayPalCheckout();
-                                    return NavigationDecision.prevent;
-                                  }
-                                  return NavigationDecision.navigate;
-                                },
-                              ),
-                            )
-                            ..loadRequest(Uri.parse(_paymentApprovalUrl!)),
-                    ),
+                  : FutureBuilder<WebViewController>(
+                    future: _initializePayPalWebView(_paymentApprovalUrl!),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(),
+                        );
+                      }
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: WebViewWidget(controller: snapshot.data!),
+                      );
+                    },
                   ),
         ),
         if (_isCapturingPayment)

@@ -26,16 +26,19 @@ class BillUser {
 class BillGroup {
   const BillGroup({
     required this.id,
+    required this.ownerId,
     required this.name,
     required this.members,
   });
   final String id;
+  final String ownerId;
   final String name;
   final List<BillUser> members;
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'ownerId': ownerId,
       'name': name,
       'members': members.map((m) => m.toMap()).toList(),
     };
@@ -44,6 +47,7 @@ class BillGroup {
   factory BillGroup.fromMap(Map<String, dynamic> map) {
     return BillGroup(
       id: map['id'] as String,
+      ownerId: map['ownerId'] as String? ?? '',
       name: map['name'] as String,
       members:
           (map['members'] as List<dynamic>)
@@ -86,6 +90,7 @@ class BillModel {
   const BillModel({
     required this.id,
     required this.groupId,
+    required this.ownerId,
     required this.title,
     required this.date,
     required this.totalAmount,
@@ -101,6 +106,7 @@ class BillModel {
 
   final String id;
   final String groupId;
+  final String ownerId;
   final String title;
   final DateTime date;
   final double totalAmount;
@@ -117,6 +123,7 @@ class BillModel {
     return {
       'id': id,
       'groupId': groupId,
+      'ownerId': ownerId,
       'title': title,
       'date': date.millisecondsSinceEpoch,
       'totalAmount': totalAmount,
@@ -137,6 +144,7 @@ class BillModel {
     return BillModel(
       id: map['id'] as String,
       groupId: map['groupId'] as String,
+      ownerId: map['ownerId'] as String? ?? '',
       title: map['title'] as String,
       date: DateTime.fromMillisecondsSinceEpoch(map['date'] as int),
       totalAmount: (map['totalAmount'] as num).toDouble(),

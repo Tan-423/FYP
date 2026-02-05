@@ -213,11 +213,13 @@ class _BillHistoryViewState extends State<BillHistoryView> {
 
 class BillCreateGroup extends StatefulWidget {
   const BillCreateGroup({
+    required this.ownerId,
     required this.onSave,
     required this.onCancel,
     super.key,
   });
 
+  final String ownerId;
   final ValueChanged<BillGroup> onSave;
   final VoidCallback onCancel;
 
@@ -351,6 +353,7 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
                   widget.onSave(
                     BillGroup(
                       id: DateTime.now().microsecondsSinceEpoch.toString(),
+                      ownerId: widget.ownerId,
                       name: name,
                       members: List.of(_members),
                     ),
@@ -370,6 +373,7 @@ class BillCreateBill extends StatefulWidget {
   const BillCreateBill({
     required this.users,
     required this.activeGroupId,
+    required this.ownerId,
     required this.onSave,
     required this.onCancel,
     super.key,
@@ -377,6 +381,7 @@ class BillCreateBill extends StatefulWidget {
 
   final List<BillUser> users;
   final String activeGroupId;
+  final String ownerId;
   final ValueChanged<BillModel> onSave;
   final VoidCallback onCancel;
 
@@ -1200,6 +1205,7 @@ class _BillCreateBillState extends State<BillCreateBill> {
       BillModel(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         groupId: widget.activeGroupId,
+        ownerId: widget.ownerId,
         title: _title.isEmpty ? 'New Bill' : _title,
         date: DateTime.now(),
         totalAmount: _calculateTotal(),
@@ -1639,6 +1645,7 @@ class _BillDetailsViewState extends State<BillDetailsView> {
     final updated = BillModel(
       id: widget.bill.id,
       groupId: widget.bill.groupId,
+      ownerId: widget.bill.ownerId,
       title: title.isEmpty ? widget.bill.title : title,
       date: widget.bill.date,
       totalAmount: _calculateEditTotal(),
@@ -1802,6 +1809,7 @@ class _BillDetailsViewState extends State<BillDetailsView> {
                         BillModel(
                           id: bill.id,
                           groupId: bill.groupId,
+                          ownerId: bill.ownerId,
                           title: bill.title,
                           date: bill.date,
                           totalAmount: bill.totalAmount,
@@ -1995,6 +2003,7 @@ class _BillDetailsViewState extends State<BillDetailsView> {
                         BillModel(
                           id: bill.id,
                           groupId: bill.groupId,
+                          ownerId: bill.ownerId,
                           title: bill.title,
                           date: bill.date,
                           totalAmount: bill.totalAmount,

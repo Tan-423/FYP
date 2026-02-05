@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'bill_tracking_firebase_service.dart';
@@ -16,6 +17,7 @@ class BillTrackingScreen extends StatefulWidget {
 class _BillTrackingScreenState extends State<BillTrackingScreen> {
   final BillTrackingFirebaseService _firebaseService =
       BillTrackingFirebaseService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   BillTrackingView _view = BillTrackingView.dashboard;
   BillTrackingView _previousView = BillTrackingView.dashboard;
@@ -28,6 +30,8 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
   StreamSubscription<List<BillGroup>>? _groupsSubscription;
   StreamSubscription<List<BillModel>>? _billsSubscription;
   bool _isLoading = true;
+
+  String get _currentUserId => _auth.currentUser?.uid ?? 'guest';
 
   @override
   void initState() {
@@ -44,7 +48,9 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
 
   void _loadData() {
     // Listen to groups changes in real-time
-    _groupsSubscription = _firebaseService.getGroupsStream().listen(
+    _groupsSubscription = _firebaseService
+        .getGroupsStream(_currentUserId)
+        .listen(
       (groups) {
         setState(() {
           _groups = groups;
@@ -79,7 +85,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
 
     // Listen to bills for the active group in real-time
     _billsSubscription = _firebaseService
-        .getBillsStream(_activeGroupId!)
+        .getBillsStream(_activeGroupId!, _currentUserId)
         .listen(
           (bills) {
             setState(() {
@@ -192,6 +198,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         final updatedBill = BillModel(
           id: bill.id,
           groupId: bill.groupId,
+          ownerId: bill.ownerId,
           title: bill.title,
           date: bill.date,
           totalAmount: bill.totalAmount,
@@ -370,6 +377,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         );
       case BillTrackingView.createGroup:
         return BillCreateGroup(
+          ownerId: _currentUserId,
           onSave: _createGroup,
           onCancel: () => setState(() => _view = BillTrackingView.dashboard),
         );
@@ -391,6 +399,7 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         return BillCreateBill(
           users: _activeGroup!.members,
           activeGroupId: _activeGroup!.id,
+          ownerId: _currentUserId,
           onSave: _createBill,
           onCancel: () => setState(() => _view = BillTrackingView.dashboard),
         );
