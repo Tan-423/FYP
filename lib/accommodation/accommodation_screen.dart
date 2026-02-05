@@ -31,6 +31,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
       FirebaseFirestore.instance.collection('AccommodationPayments');
   final CollectionReference<Map<String, dynamic>> _bookingsRef =
       FirebaseFirestore.instance.collection('AccommodationBookings');
+  final CollectionReference<Map<String, dynamic>> _ownersRef =
+      FirebaseFirestore.instance.collection('Owner');
   AccommodationView _currentView = AccommodationView.auth;
   AccommodationItem? _selectedItem;
   AccommodationItem? _editingItem;
@@ -45,10 +47,12 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   bool _isCreatingPayment = false;
   bool _isCapturingPayment = false;
   bool _isOwnerLoggedIn = false;
+  bool _isUpdatingOwnerProfile = false;
   AccommodationItem? _pendingPaymentItem;
   BookingRequest? _pendingBookingRequest;
   String? _paymentApprovalUrl;
   String? _paymentOrderId;
+  String _currentOwnerName = '';
 
   final String _paypalBaseUrl =
       'https://us-central1-fyp-project-7199d.cloudfunctions.net';
@@ -59,6 +63,8 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   final TextEditingController _ownerEmailController = TextEditingController();
   final TextEditingController _ownerPasswordController =
       TextEditingController();
+  final TextEditingController _ownerProfileNameController =
+      TextEditingController();
 
   final Set<AccommodationView> _hideNavViews = {
     AccommodationView.detail,
@@ -67,6 +73,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     AccommodationView.publish,
     AccommodationView.auth,
     AccommodationView.ownerLogin,
+    AccommodationView.ownerProfile,
   };
 
   String _escapeHtml(String value) {
@@ -210,6 +217,7 @@ ${rows.join()}
   void dispose() {
     _ownerEmailController.dispose();
     _ownerPasswordController.dispose();
+    _ownerProfileNameController.dispose();
     super.dispose();
   }
 
@@ -999,6 +1007,7 @@ ${rows.join()}
     try {
       await _auth.signInWithEmailAndPassword(email: email, password: password);
       if (!mounted) return;
+      await _loadOwnerProfile();
       setState(() {
         _isAuthenticating = false;
         _isOwnerLoggedIn = true;
@@ -1021,9 +1030,69 @@ ${rows.join()}
     setState(() {
       _isOwnerLoggedIn = false;
       _isGuest = false;
+      _isUpdatingOwnerProfile = false;
+      _currentOwnerName = '';
+      _ownerProfileNameController.clear();
       _currentView = AccommodationView.auth;
     });
     _addNotification('Logged out.');
+  }
+
+  Future<void> _loadOwnerProfile() async {
+    final ownerId = _auth.currentUser?.uid;
+    if (ownerId == null) return;
+    try {
+      final ownerProfile = await _ownersRef.doc(ownerId).get();
+      final data = ownerProfile.data();
+      final name = (data?['name'] as String?)?.trim() ?? '';
+      if (!mounted) return;
+      setState(() {
+        _currentOwnerName = name;
+        _ownerProfileNameController.text = name;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _currentOwnerName = '';
+        _ownerProfileNameController.clear();
+      });
+    }
+  }
+
+  Future<void> _handleUpdateOwnerProfile() async {
+    if (_isUpdatingOwnerProfile) {
+      return;
+    }
+    final name = _ownerProfileNameController.text.trim();
+    if (name.isEmpty) {
+      _addNotification('Organization name cannot be empty.');
+      return;
+    }
+    final ownerId = _auth.currentUser?.uid;
+    if (ownerId == null) {
+      _addNotification('Please login again.');
+      return;
+    }
+    setState(() => _isUpdatingOwnerProfile = true);
+    try {
+      await _ownersRef.doc(ownerId).set({
+        'id': ownerId,
+        'name': name,
+        'email': _auth.currentUser?.email,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (!mounted) return;
+      setState(() {
+        _currentOwnerName = name;
+        _isUpdatingOwnerProfile = false;
+        _currentView = AccommodationView.owner;
+      });
+      _addNotification('Profile updated successfully.');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isUpdatingOwnerProfile = false);
+      _addNotification('Failed to update profile.');
+    }
   }
 
   @override
@@ -1290,6 +1359,7 @@ ${rows.join()}
                   accommodations: snapshot.data ?? [],
                   ownerId: _isOwnerLoggedIn ? _auth.currentUser?.uid : null,
                   activeBookings: countSnapshot.data ?? 0,
+                  ownerName: _currentOwnerName,
                   onEdit:
                       (item) => setState(() {
                         _editingItem = item;
@@ -1300,6 +1370,10 @@ ${rows.join()}
                         _editingItem = null;
                         _currentView = AccommodationView.publish;
                       }),
+                  onProfile:
+                      () => setState(
+                        () => _currentView = AccommodationView.ownerProfile,
+                      ),
                 );
               },
             );
@@ -1315,6 +1389,20 @@ ${rows.join()}
           onPublish: _handlePublish,
           isPublishing: _isPublishing,
           initialItem: _editingItem,
+        );
+      case AccommodationView.ownerProfile:
+        if (_isGuest || !_isOwnerLoggedIn) {
+          return const InfoEmptyState(
+            icon: Icons.lock_outline,
+            title: 'Owner access required.',
+            subtitle: 'Please login as owner to update your profile.',
+          );
+        }
+        return OwnerProfileView(
+          nameController: _ownerProfileNameController,
+          isSaving: _isUpdatingOwnerProfile,
+          onBack: () => setState(() => _currentView = AccommodationView.owner),
+          onSave: _handleUpdateOwnerProfile,
         );
     }
   }

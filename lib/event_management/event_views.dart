@@ -210,6 +210,8 @@ mixin EventManagementViews
         return _buildExploreView();
       case EventView.detail:
         return _buildDetailView();
+      case EventView.seatSelection:
+        return _buildSeatSelectionView();
       case EventView.payment:
         return _buildPaymentView();
       case EventView.tickets:
@@ -308,7 +310,7 @@ mixin EventManagementViews
   }
 
   Widget _buildEventCard(EventModel event) {
-    final remaining = event.ticketsRemaining;
+    final remaining = _remainingTickets(event);
     final isSoldOut = remaining != null && remaining <= 0;
     final total = event.ticketTotal;
     final ticketLabel = _ticketAvailabilityLabel(
@@ -447,7 +449,7 @@ mixin EventManagementViews
     if (event == null) {
       return const SizedBox.shrink();
     }
-    final remaining = event.ticketsRemaining;
+    final remaining = _remainingTickets(event);
     final isSoldOut = remaining != null && remaining <= 0;
     final total = event.ticketTotal;
     final ticketLabel = _ticketAvailabilityLabel(
@@ -597,6 +599,247 @@ mixin EventManagementViews
     );
   }
 
+  Widget _buildSeatSelectionView() {
+    final event = _seatSelectionEvent;
+    if (event == null) {
+      return _buildEmptyState(
+        icon: Icons.event_seat,
+        title: 'No event selected.',
+        actionLabel: 'Back to Explore',
+        onAction: () => _selectView(EventView.explore),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: _exitSeatSelection,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'Select Seats',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Card(
+            child: ListTile(
+              title: Text(event.name),
+              subtitle: Text(event.location),
+              trailing: Text(
+                event.price > 0
+                    ? 'RM ${event.price.toStringAsFixed(2)}'
+                    : 'FREE',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              _buildSeatLegendChip(
+                label:
+                    'VIP RM ${_seatPriceForType(event, 'VIP').toStringAsFixed(2)}',
+                color: _seatColorForType('VIP'),
+              ),
+              _buildSeatLegendChip(
+                label:
+                    'Premium RM ${_seatPriceForType(event, 'Premium').toStringAsFixed(2)}',
+                color: _seatColorForType('Premium'),
+              ),
+              _buildSeatLegendChip(
+                label:
+                    'Standard RM ${_seatPriceForType(event, 'Standard').toStringAsFixed(2)}',
+                color: _seatColorForType('Standard'),
+              ),
+              _buildSeatLegendChip(
+                label: 'Selected',
+                color: Colors.blue,
+              ),
+              _buildSeatLegendChip(
+                label: 'Sold',
+                color: Colors.grey,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: StreamBuilder<List<EventSeat>>(
+            stream: _eventSeatsStream(event.id),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return _buildEmptyState(
+                  icon: Icons.error_outline,
+                  title: 'Unable to load seats.',
+                );
+              }
+              final seats = snapshot.data ?? [];
+              if (seats.isEmpty) {
+                return _buildEmptyState(
+                  icon: Icons.event_seat,
+                  title: 'Seats are not ready yet.',
+                  subtitle: 'Please try again in a moment.',
+                );
+              }
+              final total = _totalForSelectedSeats(seats);
+              final selected =
+                  seats
+                      .where((seat) => _selectedSeatIds.contains(seat.seatId))
+                      .map((seat) => seat.seatId)
+                      .toList();
+              selected.sort();
+
+              return Column(
+                children: [
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 6,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            childAspectRatio: 1,
+                          ),
+                      itemCount: seats.length,
+                      itemBuilder: (context, index) {
+                        final seat = seats[index];
+                        final isSold = _isSeatSold(seat);
+                        final isSelected =
+                            _selectedSeatIds.contains(seat.seatId);
+                        final baseColor = _seatColorForType(seat.type);
+                        final color =
+                            isSold
+                                ? Colors.grey
+                                : isSelected
+                                ? Colors.blue
+                                : baseColor;
+                        return GestureDetector(
+                          onTap: () => _toggleSeatSelection(seat),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color:
+                                    isSelected
+                                        ? Colors.blueAccent
+                                        : Colors.black12,
+                                width: 1,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                seat.seatId,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 6,
+                          offset: Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          selected.isEmpty
+                              ? 'No seats selected'
+                              : 'Selected: ${selected.join(', ')}',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Text('Total'),
+                            const Spacer(),
+                            Text(
+                              total > 0
+                                  ? 'RM ${total.toStringAsFixed(2)}'
+                                  : 'FREE',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed:
+                                _isFinalizingSeatSelection
+                                    ? null
+                                    : () => _confirmSeatSelection(seats),
+                            style: ElevatedButton.styleFrom(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 16),
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child:
+                                _isFinalizingSeatSelection
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    )
+                                    : const Text('Continue'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildDetailRow({
     required IconData icon,
     required String label,
@@ -625,6 +868,34 @@ mixin EventManagementViews
           ],
         ),
       ],
+    );
+  }
+
+  Color _seatColorForType(String type) {
+    switch (type.toLowerCase()) {
+      case 'vip':
+        return Colors.deepPurple;
+      case 'premium':
+        return Colors.teal;
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
+  Widget _buildSeatLegendChip({
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+      ),
     );
   }
 
@@ -769,6 +1040,10 @@ mixin EventManagementViews
       );
     }
 
+    final total = _pendingSeatTotal ?? event.price;
+    final seatLabel =
+        _pendingSeatIds.isEmpty ? '1 seat' : '${_pendingSeatIds.length} seats';
+
     return Column(
       children: [
         Padding(
@@ -794,12 +1069,23 @@ mixin EventManagementViews
               title: Text(event.name),
               subtitle: Text(event.location),
               trailing: Text(
-                'RM ${event.price.toStringAsFixed(2)}',
+                total > 0 ? 'RM ${total.toStringAsFixed(2)}' : 'FREE',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
           ),
         ),
+        if (_pendingSeatIds.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Seats: $seatLabel',
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
         Expanded(
           child:
@@ -1290,6 +1576,20 @@ mixin EventManagementViews
             keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 12),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              'Seat selection required',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'Turn off for general admission tickets.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            value: _seatSelectionEnabled,
+            onChanged: (value) => setState(() => _seatSelectionEnabled = value),
+          ),
+          const SizedBox(height: 12),
           _buildTextField(
             controller: _descriptionController,
             label: 'Description',
@@ -1302,18 +1602,6 @@ mixin EventManagementViews
             label: 'Total Tickets',
             hint: 'Leave blank for unlimited',
             keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 12),
-          _buildTextField(
-            controller: _ticketRemainingController,
-            label: 'Remaining Tickets',
-            hint: 'Leave blank to auto-fill from total',
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Remaining must be ≤ total. Leave empty to auto-fill.',
-            style: TextStyle(color: Colors.black45),
           ),
           const SizedBox(height: 12),
           _buildImagePickerField(),
@@ -1601,7 +1889,10 @@ mixin EventManagementViews
           _buildNavItem(
             icon: Icons.search,
             label: 'Explore',
-            isActive: _view == EventView.explore || _view == EventView.detail,
+            isActive:
+                _view == EventView.explore ||
+                _view == EventView.detail ||
+                _view == EventView.seatSelection,
             onTap: () => _selectView(EventView.explore),
           ),
           if (_isOrganizer)
