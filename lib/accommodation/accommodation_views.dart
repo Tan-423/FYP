@@ -1971,7 +1971,9 @@ class OwnerView extends StatelessWidget {
     required this.accommodations,
     required this.onPublish,
     required this.onEdit,
+    required this.onProfile,
     required this.activeBookings,
+    this.ownerName,
     this.ownerId,
     super.key,
   });
@@ -1979,7 +1981,9 @@ class OwnerView extends StatelessWidget {
   final List<AccommodationItem> accommodations;
   final VoidCallback onPublish;
   final ValueChanged<AccommodationItem> onEdit;
+  final VoidCallback onProfile;
   final int activeBookings;
+  final String? ownerName;
   final String? ownerId;
 
   @override
@@ -2010,6 +2014,13 @@ class OwnerView extends StatelessWidget {
             ),
           ],
         ),
+        if (ownerName != null && ownerName!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            'Welcome, ${ownerName!.trim()}',
+            style: const TextStyle(color: Colors.black54),
+          ),
+        ],
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.all(20),
@@ -2061,6 +2072,23 @@ class OwnerView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        OutlinedButton.icon(
+          onPressed: onProfile,
+          icon: const Icon(Icons.badge_outlined),
+          label: const Text('Owner Profile'),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            side: const BorderSide(
+              color: Color(0xFFE5E7EB),
+              style: BorderStyle.solid,
+              width: 1.4,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         OutlinedButton(
           onPressed: onPublish,
           style: OutlinedButton.styleFrom(
@@ -2226,6 +2254,85 @@ class OwnerView extends StatelessWidget {
             );
           }),
       ],
+    );
+  }
+}
+
+class OwnerProfileView extends StatelessWidget {
+  const OwnerProfileView({
+    required this.nameController,
+    required this.isSaving,
+    required this.onBack,
+    required this.onSave,
+    super.key,
+  });
+
+  final TextEditingController nameController;
+  final bool isSaving;
+  final VoidCallback onBack;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                onPressed: onBack,
+                icon: const Icon(Icons.chevron_left),
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'Owner Profile',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FormFieldContainer(
+            label: 'Organization Name',
+            child: TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                hintText: 'Enter organization name',
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: isSaving ? null : onSave,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              child:
+                  isSaving
+                      ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                      : const Text('Save Profile Changes'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

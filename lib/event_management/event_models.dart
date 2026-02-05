@@ -5,6 +5,7 @@ enum EventView {
   organizerLogin,
   explore,
   detail,
+  seatSelection,
   payment,
   tickets,
   manage,
@@ -27,6 +28,8 @@ class EventModel {
     required this.organizerName,
     required this.ticketTotal,
     required this.ticketsRemaining,
+    required this.ticketsSold,
+    required this.seatSelectionEnabled,
   });
 
   final String id;
@@ -41,6 +44,8 @@ class EventModel {
   final String organizerName;
   final int? ticketTotal;
   final int? ticketsRemaining;
+  final int? ticketsSold;
+  final bool seatSelectionEnabled;
 }
 
 class TicketModel {
@@ -53,6 +58,38 @@ class TicketModel {
   final String ticketId;
   final String purchaseDate;
   final EventModel event;
+}
+
+class EventSeat {
+  EventSeat({
+    required this.docId,
+    required this.eventId,
+    required this.seatId,
+    required this.type,
+    required this.price,
+    required this.status,
+    required this.heldBy,
+    required this.heldUntil,
+  });
+
+  final String docId;
+  final String eventId;
+  final String seatId;
+  final String type;
+  final double price;
+  final String status;
+  final String? heldBy;
+  final DateTime? heldUntil;
+}
+
+class SeatTypeOption {
+  const SeatTypeOption({
+    required this.type,
+    required this.priceDelta,
+  });
+
+  final String type;
+  final double priceDelta;
 }
 
 class PaymentRecord {
