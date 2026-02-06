@@ -53,11 +53,19 @@ class TicketModel {
     required this.ticketId,
     required this.purchaseDate,
     required this.event,
+    this.seatIds = const [],
+    this.seatTypes = const [],
+    this.seatCount = 1,
+    this.status = 'ACTIVE',
   });
 
   final String ticketId;
   final String purchaseDate;
   final EventModel event;
+  final List<String> seatIds;
+  final List<String> seatTypes;
+  final int seatCount;
+  final String status;
 }
 
 class EventSeat {

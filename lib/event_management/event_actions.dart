@@ -155,43 +155,42 @@ mixin EventManagementActions on State<EventManagementScreen> {
   }
 
   Stream<List<EventSeat>> _eventSeatsStream(String eventId) {
-    return _eventSeatsRef
-        .where('EventId', isEqualTo: eventId)
-        .snapshots()
-        .map((snapshot) {
-          final seatMap = <String, EventSeat>{};
-          for (final doc in snapshot.docs) {
+    return _eventSeatsRef.where('EventId', isEqualTo: eventId).snapshots().map((
+      snapshot,
+    ) {
+      final seatMap = <String, EventSeat>{};
+      for (final doc in snapshot.docs) {
         _clearHeldSeatStatus(doc);
-            final seat = _seatFromDoc(doc);
-            if (seat != null) {
-              final existing = seatMap[seat.seatId];
-              if (existing == null) {
-                seatMap[seat.seatId] = seat;
-                continue;
-              }
-              final existingStatus = existing.status.trim().toUpperCase();
-              final nextStatus = seat.status.trim().toUpperCase();
-              if (existingStatus == 'SOLD') {
-                continue;
-              }
-              if (nextStatus == 'SOLD') {
-                seatMap[seat.seatId] = seat;
-                continue;
-              }
-              if (existingStatus == 'HELD') {
-                continue;
-              }
-              if (nextStatus == 'HELD') {
-                seatMap[seat.seatId] = seat;
-                continue;
-              }
-              seatMap[seat.seatId] = seat;
-            }
+        final seat = _seatFromDoc(doc);
+        if (seat != null) {
+          final existing = seatMap[seat.seatId];
+          if (existing == null) {
+            seatMap[seat.seatId] = seat;
+            continue;
           }
-          final seats = seatMap.values.toList();
-          seats.sort(_compareSeats);
-          return seats;
-        });
+          final existingStatus = existing.status.trim().toUpperCase();
+          final nextStatus = seat.status.trim().toUpperCase();
+          if (existingStatus == 'SOLD') {
+            continue;
+          }
+          if (nextStatus == 'SOLD') {
+            seatMap[seat.seatId] = seat;
+            continue;
+          }
+          if (existingStatus == 'HELD') {
+            continue;
+          }
+          if (nextStatus == 'HELD') {
+            seatMap[seat.seatId] = seat;
+            continue;
+          }
+          seatMap[seat.seatId] = seat;
+        }
+      }
+      final seats = seatMap.values.toList();
+      seats.sort(_compareSeats);
+      return seats;
+    });
   }
 
   EventModel? _eventFromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -283,8 +282,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     final normalized = _normalizedKeys(data);
     final eventId =
         _asString(normalized['eventid']) ?? _asString(data['EventId']);
-    final seatId =
-        _asString(normalized['seatid']) ?? _asString(data['SeatId']);
+    final seatId = _asString(normalized['seatid']) ?? _asString(data['SeatId']);
     if (eventId == null || seatId == null) {
       return null;
     }
@@ -299,10 +297,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
             .trim()
             .toUpperCase();
     final price = _asDouble(normalized['price'] ?? data['Price']);
-    final heldBy =
-        _asString(normalized['heldby']) ?? _asString(data['HeldBy']);
-    final heldUntil =
-        _asTimestamp(normalized['helduntil'] ?? data['HeldUntil']);
+    final heldBy = _asString(normalized['heldby']) ?? _asString(data['HeldBy']);
+    final heldUntil = _asTimestamp(
+      normalized['helduntil'] ?? data['HeldUntil'],
+    );
     return EventSeat(
       docId: doc.id,
       eventId: eventId,
@@ -373,6 +371,32 @@ mixin EventManagementActions on State<EventManagementScreen> {
         (ticketTotal != null && ticketsRemaining != null
             ? (ticketTotal - ticketsRemaining)
             : null);
+    final seatIdsRaw =
+        (normalized['seatids'] ?? data['SeatIds']) as List<dynamic>?;
+    final seatIds =
+        seatIdsRaw
+            ?.map((item) => item.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList() ??
+        <String>[];
+    final seatTypesRaw =
+        (normalized['seattypes'] ?? data['SeatTypes']) as List<dynamic>?;
+    var seatTypes =
+        seatTypesRaw
+            ?.map((item) => item.toString())
+            .where((value) => value.trim().isNotEmpty)
+            .toList() ??
+        <String>[];
+    if (seatTypes.isEmpty && seatIds.isNotEmpty) {
+      seatTypes = seatIds.map(_seatTypeForSeatId).toList();
+    }
+    final seatCount =
+        _asInt(normalized['seatcount'] ?? data['SeatCount']) ??
+        (seatIds.isNotEmpty ? seatIds.length : 1);
+    final status =
+        _asString(normalized['status']) ??
+        _asString(data['Status']) ??
+        'ACTIVE';
 
     if (eventId.isNotEmpty &&
         (eventLocation == null ||
@@ -411,6 +435,10 @@ mixin EventManagementActions on State<EventManagementScreen> {
           _asString(data['PurchaseDate']) ??
           '',
       event: event,
+      seatIds: seatIds,
+      seatTypes: seatTypes,
+      seatCount: seatCount,
+      status: status,
     );
   }
 
@@ -548,9 +576,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     }
     final sold =
         event.ticketsSold ??
-        (event.ticketsRemaining != null
-            ? total - event.ticketsRemaining!
-            : 0);
+        (event.ticketsRemaining != null ? total - event.ticketsRemaining! : 0);
     final remaining = total - sold;
     return remaining < 0 ? 0 : remaining;
   }
@@ -639,10 +665,18 @@ mixin EventManagementActions on State<EventManagementScreen> {
     }
   }
 
+  String _seatTypeForSeatId(String seatId) {
+    final trimmed = seatId.trim();
+    if (trimmed.isEmpty) {
+      return 'Standard';
+    }
+    final row = trimmed.substring(0, 1).toUpperCase();
+    return _seatTypeForRow(row);
+  }
+
   Future<void> _ensureSeatInventory(EventModel event) async {
     try {
-      final totalSeats =
-          event.ticketTotal ?? event.ticketsRemaining ?? 0;
+      final totalSeats = event.ticketTotal ?? event.ticketsRemaining ?? 0;
       if (totalSeats <= 0) {
         return;
       }
@@ -792,8 +826,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       return false;
     }
     final currentUser = _currentUserId ?? 'guest';
-    final holdUntil =
-        Timestamp.fromDate(DateTime.now().add(_seatHoldDuration));
+    final holdUntil = Timestamp.fromDate(DateTime.now().add(_seatHoldDuration));
     final seatRef = _eventSeatsRef.doc(seat.docId);
     try {
       return await FirebaseFirestore.instance.runTransaction<bool>((
@@ -818,8 +851,9 @@ mixin EventManagementActions on State<EventManagementScreen> {
           final heldBy =
               _asString(normalized['heldby']) ?? _asString(data['HeldBy']);
           final heldUntil =
-              _asTimestamp(normalized['helduntil'] ?? data['HeldUntil'])
-                  ?.toDate();
+              _asTimestamp(
+                normalized['helduntil'] ?? data['HeldUntil'],
+              )?.toDate();
           if (heldUntil != null &&
               heldUntil.isAfter(DateTime.now()) &&
               heldBy != null &&
@@ -940,10 +974,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     return total;
   }
 
-  Future<List<String>> _fetchAvailableSeatIds(
-    String eventId,
-    int count,
-  ) async {
+  Future<List<String>> _fetchAvailableSeatIds(String eventId, int count) async {
     if (count <= 0) {
       return [];
     }
@@ -978,6 +1009,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     setState(() => _isFinalizingSeatSelection = true);
     final total = _totalForSelectedSeats(seats);
     final selected = _selectedSeatIds.toList();
+    debugPrint('🎫 _confirmSeatSelection: selected seats = $selected');
     final selectedSeats =
         seats.where((seat) => _selectedSeatIds.contains(seat.seatId)).toList();
     final refreshed = await _refreshSeatHolds(selectedSeats);
@@ -996,6 +1028,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
       _pendingSeatTotal = total;
       _pendingSeatEventId = event.id;
     });
+    debugPrint('🎫 _confirmSeatSelection: _pendingSeatIds = $_pendingSeatIds');
     try {
       if (total > 0) {
         await _startPayPalCheckout(event, amount: total);
@@ -1013,9 +1046,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
     }
   }
 
-  Future<WebViewController> _initializePayPalWebView(
-    String approvalUrl,
-  ) async {
+  Future<WebViewController> _initializePayPalWebView(String approvalUrl) async {
     final cookieManager = WebViewCookieManager();
     await cookieManager.clearCookies();
     final controller =
@@ -1109,7 +1140,8 @@ mixin EventManagementActions on State<EventManagementScreen> {
 ${rows.join()}
 </table>
 ''';
-    final text = 'Receipt for ${event.name}. '
+    final text =
+        'Receipt for ${event.name}. '
         'Payment ID: $paymentId. Total: MYR ${amount.toStringAsFixed(2)}.';
     await _sendEmailViaEmailJs(
       to: email,
@@ -1143,7 +1175,8 @@ ${rows.join()}
 ${rows.join()}
 </table>
 ''';
-    final text = 'Your ticket for ${event.name} has been cancelled. '
+    final text =
+        'Your ticket for ${event.name} has been cancelled. '
         'Ticket ID: $ticketId.';
     await _sendEmailViaEmailJs(
       to: email,
@@ -1357,8 +1390,15 @@ ${rows.join()}
     List<String> seatIds = const [],
     double? totalAmount,
   }) async {
+    debugPrint('🎫 _confirmTicketPurchase: received seatIds = $seatIds');
+    debugPrint(
+      '🎫 _confirmTicketPurchase: event.seatSelectionEnabled = ${event.seatSelectionEnabled}',
+    );
     var seatAssignmentPending = false;
     var resolvedSeatIds = seatIds;
+    debugPrint(
+      '🎫 _confirmTicketPurchase: initial resolvedSeatIds = $resolvedSeatIds',
+    );
     if (event.seatSelectionEnabled && resolvedSeatIds.isEmpty) {
       resolvedSeatIds = await _fetchAvailableSeatIds(event.id, 1);
       if (resolvedSeatIds.isEmpty) {
@@ -1376,8 +1416,11 @@ ${rows.join()}
       }
     }
     final seatCount = resolvedSeatIds.isEmpty ? 1 : resolvedSeatIds.length;
-    var reserved =
-        await _reserveTickets(event.id, seatCount, resolvedSeatIds);
+    debugPrint(
+      '🎫 _confirmTicketPurchase: attempting to reserve seatCount=$seatCount, resolvedSeatIds=$resolvedSeatIds',
+    );
+    var reserved = await _reserveTickets(event.id, seatCount, resolvedSeatIds);
+    debugPrint('🎫 _confirmTicketPurchase: reservation result = $reserved');
     if (!reserved) {
       if (resolvedSeatIds.isNotEmpty) {
         await _releaseSeatHolds(event.id, resolvedSeatIds);
@@ -1385,11 +1428,16 @@ ${rows.join()}
       if (event.seatSelectionEnabled &&
           paymentId != null &&
           paymentId.trim().isNotEmpty) {
-        final fallbackSeatIds =
-            await _fetchAvailableSeatIds(event.id, seatCount);
+        final fallbackSeatIds = await _fetchAvailableSeatIds(
+          event.id,
+          seatCount,
+        );
         if (fallbackSeatIds.length == seatCount) {
-          final fallbackReserved =
-              await _reserveTickets(event.id, seatCount, fallbackSeatIds);
+          final fallbackReserved = await _reserveTickets(
+            event.id,
+            seatCount,
+            fallbackSeatIds,
+          );
           if (fallbackReserved) {
             resolvedSeatIds = fallbackSeatIds;
             await _paymentsRef.doc(paymentId).set({
@@ -1407,8 +1455,11 @@ ${rows.join()}
           event.seatSelectionEnabled &&
           paymentId != null &&
           paymentId.trim().isNotEmpty) {
-        final pendingReserved =
-            await _reserveTickets(event.id, seatCount, const []);
+        final pendingReserved = await _reserveTickets(
+          event.id,
+          seatCount,
+          const [],
+        );
         if (pendingReserved) {
           resolvedSeatIds = [];
           seatAssignmentPending = true;
@@ -1418,9 +1469,7 @@ ${rows.join()}
             'SeatAssignmentStatus': 'PENDING',
           }, SetOptions(merge: true));
           reserved = true;
-          _showNotification(
-            'Payment captured. Seat assignment pending.',
-          );
+          _showNotification('Payment captured. Seat assignment pending.');
         }
       }
       if (!reserved) {
@@ -1441,6 +1490,7 @@ ${rows.join()}
         totalAmount ??
         (resolvedSeatIds.isEmpty ? event.price : (event.price * seatCount));
     final ticketStatus = seatAssignmentPending ? 'PENDING_SEAT' : 'ACTIVE';
+    final seatTypes = resolvedSeatIds.map(_seatTypeForSeatId).toList();
     final ticketData = <String, dynamic>{
       'TicketId': ticketId,
       'EventId': event.id,
@@ -1455,6 +1505,7 @@ ${rows.join()}
       'PurchaseDate': purchaseDate,
       'Price': total,
       'SeatIds': resolvedSeatIds,
+      'SeatTypes': seatTypes,
       'SeatCount': seatCount,
       'PaymentId': paymentId,
       'PayerEmail': payerEmail,
@@ -1485,6 +1536,10 @@ ${rows.join()}
           ticketId: ticketId,
           purchaseDate: purchaseDate,
           event: event,
+          seatIds: resolvedSeatIds,
+          seatTypes: seatTypes,
+          seatCount: seatCount,
+          status: ticketStatus,
         ),
       );
       _view = EventView.tickets;
@@ -1515,26 +1570,55 @@ ${rows.join()}
     int count,
     List<String> seatIds,
   ) async {
+    debugPrint(
+      '🎫 _reserveTickets: eventId=$eventId, count=$count, seatIds=$seatIds',
+    );
     final eventRef = _eventsRef.doc(eventId);
     final seatRefs = <String, DocumentReference<Map<String, dynamic>>>{};
     if (seatIds.isNotEmpty) {
       for (final seatId in seatIds) {
         final seatRef = await _seatRefForId(eventId, seatId);
         if (seatRef == null) {
+          debugPrint('🎫 _reserveTickets: seatRef is null for seatId=$seatId');
           return false;
         }
         seatRefs[seatId] = seatRef;
       }
+      debugPrint('🎫 _reserveTickets: successfully found all seat refs');
     }
     try {
       return await FirebaseFirestore.instance.runTransaction<bool>((
         transaction,
       ) async {
+        // CRITICAL: Read ALL documents first before any writes
         final snapshot = await transaction.get(eventRef);
         final data = snapshot.data();
         if (data == null) {
           return false;
         }
+
+        // Read all seat documents first
+        final seatSnapshots = <String, Map<String, dynamic>>{};
+        for (final seatId in seatIds) {
+          final seatRef = seatRefs[seatId];
+          if (seatRef == null) {
+            debugPrint(
+              '🎫 _reserveTickets: seatRef is null in transaction for seatId=$seatId',
+            );
+            return false;
+          }
+          final seatSnap = await transaction.get(seatRef);
+          final seatData = seatSnap.data();
+          if (seatData == null) {
+            debugPrint(
+              '🎫 _reserveTickets: seatData is null for seatId=$seatId',
+            );
+            return false;
+          }
+          seatSnapshots[seatId] = seatData;
+        }
+
+        // Now validate all reads before any writes
         final normalized = _normalizedKeys(data);
         final total =
             _asInt(normalized['tickettotal']) ??
@@ -1555,40 +1639,55 @@ ${rows.join()}
           if (nextRemaining < 0) {
             return false;
           }
-          transaction.update(eventRef, {
-            'TicketsSold': sold + count,
-            'TicketsRemaining': nextRemaining,
-          });
         }
-        for (final seatId in seatIds) {
-          final seatRef = seatRefs[seatId];
-          if (seatRef == null) {
-            return false;
-          }
-          final seatSnap = await transaction.get(seatRef);
-          final seatData = seatSnap.data();
-          if (seatData == null) {
-            return false;
-          }
+
+        // Validate all seats are available
+        for (final entry in seatSnapshots.entries) {
+          final seatId = entry.key;
+          final seatData = entry.value;
           final seatNormalized = _normalizedKeys(seatData);
           final status =
               (_asString(seatNormalized['status']) ??
                       _asString(seatData['Status']) ??
                       'AVAILABLE')
                   .toUpperCase();
+          debugPrint('🎫 _reserveTickets: seatId=$seatId, status=$status');
           if (status == 'SOLD') {
+            debugPrint(
+              '🎫 _reserveTickets: seat is already SOLD, returning false',
+            );
             return false;
           }
-          transaction.update(seatRef, {
-            'Status': 'SOLD',
-            'HeldBy': null,
-            'HeldUntil': null,
-            'UpdatedAt': FieldValue.serverTimestamp(),
+        }
+
+        // All reads complete and validated - now perform all writes
+        if (total != null) {
+          final nextRemaining = total - sold - count;
+          transaction.update(eventRef, {
+            'TicketsSold': sold + count,
+            'TicketsRemaining': nextRemaining,
           });
         }
+
+        for (final seatId in seatIds) {
+          final seatRef = seatRefs[seatId];
+          if (seatRef != null) {
+            transaction.update(seatRef, {
+              'Status': 'SOLD',
+              'HeldBy': null,
+              'HeldUntil': null,
+              'UpdatedAt': FieldValue.serverTimestamp(),
+            });
+            debugPrint('🎫 _reserveTickets: marked seatId=$seatId as SOLD');
+          }
+        }
+        debugPrint(
+          '🎫 _reserveTickets: transaction successful, returning true',
+        );
         return true;
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('🎫 _reserveTickets: transaction failed with error: $e');
       return false;
     }
   }
@@ -1650,10 +1749,10 @@ ${rows.join()}
             (normalized['seatids'] ?? raw['SeatIds']) as List<dynamic>?;
         resolvedSeatIds =
             seatIdsRaw
-                    ?.map((item) => item.toString())
-                    .where((value) => value.trim().isNotEmpty)
-                    .toList() ??
-                <String>[];
+                ?.map((item) => item.toString())
+                .where((value) => value.trim().isNotEmpty)
+                .toList() ??
+            <String>[];
         seatEventId =
             _asString(normalized['seateventid']) ??
             _asString(raw['SeatEventId']) ??
@@ -1697,8 +1796,10 @@ ${rows.join()}
       return;
     }
 
+    final seatTypes = resolvedSeatIds.map(_seatTypeForSeatId).toList();
     await _ticketsRef.doc(ticketId).set({
       'SeatIds': resolvedSeatIds,
+      'SeatTypes': seatTypes,
       'SeatCount': resolvedSeatIds.length,
       'Status': 'ACTIVE',
     }, SetOptions(merge: true));
@@ -1784,6 +1885,9 @@ ${rows.join()}
         throw Exception('Missing approval data');
       }
       final recordId = paymentRecordId ?? orderId;
+      debugPrint(
+        '🎫 _startPayPalCheckout: creating payment doc with _pendingSeatIds = $_pendingSeatIds',
+      );
       await _paymentsRef.doc(recordId).set({
         'PaymentId': recordId,
         'PayPalOrderId': orderId,
@@ -1799,6 +1903,7 @@ ${rows.join()}
         'SeatEventId': _pendingSeatEventId ?? event.id,
         'CreatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      debugPrint('🎫 _startPayPalCheckout: payment doc created');
       if (!mounted) {
         return;
       }
@@ -1845,15 +1950,21 @@ ${rows.join()}
       final orderId = _paymentOrderId;
       final recordId = _activePaymentRecordId;
       List<String> seatIds = _pendingSeatIds;
+      debugPrint('🎫 _capturePayPalOrder: initial seatIds = $seatIds');
+      debugPrint('🎫 _capturePayPalOrder: _pendingSeatIds = $_pendingSeatIds');
       double? seatTotal = _pendingSeatTotal;
       String? seatEventId = _pendingSeatEventId;
       if (recordId != null && recordId.isNotEmpty) {
         try {
           final paymentDoc = await _paymentsRef.doc(recordId).get();
           final raw = paymentDoc.data() ?? <String, dynamic>{};
+          debugPrint('🎫 _capturePayPalOrder: payment doc data = $raw');
           final normalized = _normalizedKeys(raw);
           final seatIdsRaw =
               (normalized['seatids'] ?? raw['SeatIds']) as List<dynamic>?;
+          debugPrint(
+            '🎫 _capturePayPalOrder: seatIdsRaw from payment doc = $seatIdsRaw',
+          );
           if (seatIdsRaw != null && seatIds.isEmpty) {
             seatIds = seatIdsRaw.map((item) => item.toString()).toList();
           }
@@ -1864,6 +1975,9 @@ ${rows.join()}
           if (seatTotal == null) {
             seatTotal = _asDouble(normalized['amount'] ?? raw['Amount']);
           }
+          debugPrint(
+            '🎫 _capturePayPalOrder: final seatIds after reading payment doc = $seatIds',
+          );
         } catch (_) {
           // Ignore payment doc fetch failures; fallback to local state.
         }
@@ -1913,8 +2027,7 @@ ${rows.join()}
             final raw = paymentDoc.data() ?? <String, dynamic>{};
             final normalized = _normalizedKeys(raw);
             final eventId =
-                _asString(normalized['eventid']) ??
-                _asString(raw['EventId']);
+                _asString(normalized['eventid']) ?? _asString(raw['EventId']);
             if (eventId != null && eventId.isNotEmpty) {
               fallbackEvent = await _getEventById(eventId);
             }
@@ -2434,10 +2547,8 @@ ${rows.join()}
       if (ticketTotal != null) 'TicketsSold': ticketsSold,
       if (ticketTotal != null) 'TicketTotal': ticketTotal,
       if (ticketsRemaining != null) 'TicketsRemaining': ticketsRemaining,
-      if (isEditing && ticketTotal == null)
-        'TicketsSold': FieldValue.delete(),
-      if (isEditing && ticketTotal == null)
-        'TicketTotal': FieldValue.delete(),
+      if (isEditing && ticketTotal == null) 'TicketsSold': FieldValue.delete(),
+      if (isEditing && ticketTotal == null) 'TicketTotal': FieldValue.delete(),
       if (isEditing && ticketTotal == null)
         'TicketsRemaining': FieldValue.delete(),
       'OrganizerId': _currentUserId ?? 'org_wanderease',

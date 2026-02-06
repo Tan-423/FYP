@@ -665,14 +665,8 @@ mixin EventManagementViews
                     'Standard RM ${_seatPriceForType(event, 'Standard').toStringAsFixed(2)}',
                 color: _seatColorForType('Standard'),
               ),
-              _buildSeatLegendChip(
-                label: 'Selected',
-                color: Colors.blue,
-              ),
-              _buildSeatLegendChip(
-                label: 'Sold',
-                color: Colors.grey,
-              ),
+              _buildSeatLegendChip(label: 'Selected', color: Colors.blue),
+              _buildSeatLegendChip(label: 'Sold', color: Colors.grey),
             ],
           ),
         ),
@@ -722,8 +716,9 @@ mixin EventManagementViews
                       itemBuilder: (context, index) {
                         final seat = seats[index];
                         final isSold = _isSeatSold(seat);
-                        final isSelected =
-                            _selectedSeatIds.contains(seat.seatId);
+                        final isSelected = _selectedSeatIds.contains(
+                          seat.seatId,
+                        );
                         final baseColor = _seatColorForType(seat.type);
                         final color =
                             isSold
@@ -805,8 +800,7 @@ mixin EventManagementViews
                                     ? null
                                     : () => _confirmSeatSelection(seats),
                             style: ElevatedButton.styleFrom(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 16),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
                               backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                               shape: RoundedRectangleBorder(
@@ -882,10 +876,7 @@ mixin EventManagementViews
     }
   }
 
-  Widget _buildSeatLegendChip({
-    required String label,
-    required Color color,
-  }) {
+  Widget _buildSeatLegendChip({required String label, required Color color}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1095,9 +1086,7 @@ mixin EventManagementViews
                     future: _initializePayPalWebView(_paymentApprovalUrl!),
                     builder: (context, snapshot) {
                       if (!snapshot.hasData) {
-                        return const Center(
-                          child: CircularProgressIndicator(),
-                        );
+                        return const Center(child: CircularProgressIndicator());
                       }
                       return ClipRRect(
                         borderRadius: BorderRadius.circular(12),
@@ -1350,6 +1339,7 @@ mixin EventManagementViews
   }
 
   Widget _buildTicketCard(TicketModel ticket) {
+    final seatInfo = _buildTicketSeatInfo(ticket);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -1385,6 +1375,8 @@ mixin EventManagementViews
                         'Joined on ${ticket.purchaseDate}',
                         style: const TextStyle(color: Colors.black54),
                       ),
+                      if (seatInfo.isNotEmpty) const SizedBox(height: 6),
+                      ...seatInfo,
                     ],
                   ),
                 ),
@@ -1422,6 +1414,58 @@ mixin EventManagementViews
         ],
       ),
     );
+  }
+
+  List<Widget> _buildTicketSeatInfo(TicketModel ticket) {
+    final infoStyle = const TextStyle(color: Colors.black54);
+    if (ticket.seatIds.isEmpty) {
+      if (ticket.event.seatSelectionEnabled &&
+          ticket.status.trim().toUpperCase() == 'PENDING_SEAT') {
+        return [Text('Seat assignment pending', style: infoStyle)];
+      }
+      return const [];
+    }
+    final seatNumbers = _formatSeatList(ticket.seatIds);
+    final seatTypes = _formatSeatTypes(ticket.seatTypes);
+    final widgets = <Widget>[];
+    if (seatTypes.isNotEmpty) {
+      widgets.add(Text('Seat Type: $seatTypes', style: infoStyle));
+    }
+    if (seatNumbers.isNotEmpty) {
+      widgets.add(Text('Seat No: $seatNumbers', style: infoStyle));
+    }
+    return widgets;
+  }
+
+  String _formatSeatTypes(List<String> seatTypes) {
+    if (seatTypes.isEmpty) {
+      return '';
+    }
+    final unique = <String>[];
+    for (final type in seatTypes) {
+      final normalized = type.trim();
+      if (normalized.isEmpty) {
+        continue;
+      }
+      if (!unique.contains(normalized)) {
+        unique.add(normalized);
+      }
+    }
+    return unique.join(', ');
+  }
+
+  String _formatSeatList(List<String> seatIds) {
+    final cleaned =
+        seatIds.map((id) => id.trim()).where((id) => id.isNotEmpty).toList();
+    if (cleaned.isEmpty) {
+      return '';
+    }
+    if (cleaned.length <= 4) {
+      return cleaned.join(', ');
+    }
+    final preview = cleaned.take(3).join(', ');
+    final remaining = cleaned.length - 3;
+    return '$preview +$remaining';
   }
 
   Widget _buildQrPlaceholder(String value) {
