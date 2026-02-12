@@ -38,6 +38,7 @@ class _PostCard extends StatelessWidget {
     required this.onLike,
     required this.onDelete,
     required this.onOpenComments,
+    required this.currentUserId,
   });
 
   final CommunityPost post;
@@ -45,6 +46,7 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onLike;
   final VoidCallback onDelete;
   final VoidCallback onOpenComments;
+  final String currentUserId;
 
   @override
   Widget build(BuildContext context) {
@@ -96,54 +98,55 @@ class _PostCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: kTextMuted),
-                  color: Colors.white,
-                  onSelected: (value) async {
-                    if (value != 'delete') return;
-                    final shouldDelete =
-                        await showDialog<bool>(
-                          context: context,
-                          builder:
-                              (context) => AlertDialog(
-                                title: const Text('Delete post?'),
-                                content: const Text(
-                                  'This action cannot be undone.',
+                if (post.authorId == currentUserId)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: kTextMuted),
+                    color: Colors.white,
+                    onSelected: (value) async {
+                      if (value != 'delete') return;
+                      final shouldDelete =
+                          await showDialog<bool>(
+                            context: context,
+                            builder:
+                                (context) => AlertDialog(
+                                  title: const Text('Delete post?'),
+                                  content: const Text(
+                                    'This action cannot be undone.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed:
+                                          () => Navigator.of(context).pop(false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    FilledButton(
+                                      onPressed:
+                                          () => Navigator.of(context).pop(true),
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
                                 ),
-                                actions: [
-                                  TextButton(
-                                    onPressed:
-                                        () => Navigator.of(context).pop(false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  FilledButton(
-                                    onPressed:
-                                        () => Navigator.of(context).pop(true),
-                                    child: const Text('Delete'),
-                                  ),
-                                ],
-                              ),
-                        ) ??
-                        false;
-                    if (shouldDelete) onDelete();
-                  },
-                  itemBuilder:
-                      (context) => const [
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.delete_outline,
-                                color: Colors.redAccent,
-                              ),
-                              SizedBox(width: 8),
-                              Text('Delete Post'),
-                            ],
+                          ) ??
+                          false;
+                      if (shouldDelete) onDelete();
+                    },
+                    itemBuilder:
+                        (context) => const [
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.redAccent,
+                                ),
+                                SizedBox(width: 8),
+                                Text('Delete Post'),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                ),
+                        ],
+                  ),
               ],
             ),
           ),
@@ -240,12 +243,16 @@ class _PollCard extends StatelessWidget {
     required this.options,
     required this.selectedOptionId,
     required this.onVote,
+    required this.currentUserId,
+    required this.onDelete,
   });
 
   final CommunityPoll poll;
   final List<PollOption> options;
   final String? selectedOptionId;
   final Future<void> Function(String optionId) onVote;
+  final String currentUserId;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -270,13 +277,71 @@ class _PollCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            poll.question,
-            style: const TextStyle(
-              color: kText,
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  poll.question,
+                  style: const TextStyle(
+                    color: kText,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+              if (poll.creatorId == currentUserId)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: kTextMuted),
+                  color: Colors.white,
+                  onSelected: (value) async {
+                    if (value != 'delete') return;
+                    final shouldDelete =
+                        await showDialog<bool>(
+                          context: context,
+                          builder:
+                              (context) => AlertDialog(
+                                title: const Text('Delete poll?'),
+                                content: const Text(
+                                  'This will delete all votes and cannot be undone.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed:
+                                        () => Navigator.of(context).pop(false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  FilledButton(
+                                    onPressed:
+                                        () => Navigator.of(context).pop(true),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.redAccent,
+                                    ),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                        ) ??
+                        false;
+                    if (shouldDelete) onDelete();
+                  },
+                  itemBuilder:
+                      (context) => const [
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.delete_outline,
+                                color: Colors.redAccent,
+                              ),
+                              SizedBox(width: 8),
+                              Text('Delete Poll'),
+                            ],
+                          ),
+                        ),
+                      ],
+                ),
+            ],
           ),
           const SizedBox(height: 12),
           for (final option in options)

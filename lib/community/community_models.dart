@@ -119,6 +119,7 @@ class CommunityGroup {
     this.code,
     required this.membersCount,
     required this.createdAt,
+    required this.adminId,
   });
 
   final String id;
@@ -128,6 +129,7 @@ class CommunityGroup {
   final String? code;
   int membersCount;
   final DateTime createdAt;
+  final String adminId;
 
   Map<String, dynamic> toMap() {
     return {
@@ -137,6 +139,7 @@ class CommunityGroup {
       'code': code,
       'membersCount': membersCount,
       'createdAt': createdAt,
+      'adminId': adminId,
     };
   }
 
@@ -154,6 +157,7 @@ class CommunityGroup {
       code: data['code'] as String?,
       membersCount: (data['membersCount'] ?? 0) as int,
       createdAt: _dateFromField(data['createdAt']),
+      adminId: (data['adminId'] ?? '') as String,
     );
   }
 }
@@ -164,18 +168,21 @@ class CommunityPoll {
     required this.question,
     required this.totalVotes,
     required this.createdAt,
+    required this.creatorId,
   });
 
   final String id;
   final String question;
   int totalVotes;
   final DateTime createdAt;
+  final String creatorId;
 
   Map<String, dynamic> toMap() {
     return {
       'question': question,
       'totalVotes': totalVotes,
       'createdAt': createdAt,
+      'creatorId': creatorId,
     };
   }
 
@@ -186,6 +193,7 @@ class CommunityPoll {
       question: (data['question'] ?? '') as String,
       totalVotes: (data['totalVotes'] ?? 0) as int,
       createdAt: _dateFromField(data['createdAt']),
+      creatorId: (data['creatorId'] ?? '') as String,
     );
   }
 }

@@ -159,3 +159,7 @@ exports.paypalCancel = onRequest((req, res) => {
         "</body></html>"
     );
 });
+
+// Import Dialogflow chatbot fulfillment
+const dialogflowChatbot = require('./dialogflow-chatbot');
+exports.dialogflowFirebaseFulfillment = dialogflowChatbot.dialogflowFirebaseFulfillment;

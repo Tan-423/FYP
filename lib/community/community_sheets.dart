@@ -601,6 +601,142 @@ class _NewGroupSheetState extends State<_NewGroupSheet> {
   }
 }
 
+class _EditGroupSheet extends StatefulWidget {
+  const _EditGroupSheet({
+    required this.group,
+    required this.onSubmit,
+  });
+
+  final CommunityGroup group;
+  final void Function(String name, String description) onSubmit;
+
+  @override
+  State<_EditGroupSheet> createState() => _EditGroupSheetState();
+}
+
+class _EditGroupSheetState extends State<_EditGroupSheet> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descriptionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.group.name);
+    _descriptionController =
+        TextEditingController(text: widget.group.description);
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassSheet(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          16 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Edit Group',
+                  style: TextStyle(
+                    color: kBlue,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close, color: kTextMuted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              style: const TextStyle(color: kText),
+              decoration: InputDecoration(
+                hintText: 'Group Name',
+                hintStyle: const TextStyle(color: kTextMuted),
+                filled: true,
+                fillColor: kSlate50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descriptionController,
+              maxLines: 3,
+              style: const TextStyle(color: kText),
+              decoration: InputDecoration(
+                hintText: 'Description',
+                hintStyle: const TextStyle(color: kTextMuted),
+                filled: true,
+                fillColor: kSlate50,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: kShadowBlue,
+                      blurRadius: 12,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kBlue,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  onPressed: () {
+                    if (_nameController.text.trim().isEmpty) return;
+                    widget.onSubmit(
+                      _nameController.text.trim(),
+                      _descriptionController.text.trim(),
+                    );
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text('Save Changes'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _NewPollSheet extends StatefulWidget {
   const _NewPollSheet({required this.onSubmit});
 

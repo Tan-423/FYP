@@ -97,6 +97,39 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
+  void _openEditGroupSheet(CommunityGroup group) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.2),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder:
+          (context) => _EditGroupSheet(
+            group: group,
+            onSubmit: (name, description) async {
+              await _service.updateGroup(
+                groupId: group.id,
+                name: name,
+                description: description,
+              );
+              if (!context.mounted) return;
+              Navigator.of(context).pop();
+            },
+          ),
+    );
+  }
+
+  void _deleteGroup(String groupId) {
+    _service.deleteGroup(groupId);
+  }
+
+  void _deletePoll(String pollId) {
+    _service.deletePoll(pollId);
+  }
+
   void _openNewPollSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -211,6 +244,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           service: _service,
                           onJoinChat: _openChat,
                           onNewGroup: _openNewGroupSheet,
+                          onEditGroup: _openEditGroupSheet,
+                          onDeleteGroup: _deleteGroup,
                         );
                       },
                     ),
@@ -222,6 +257,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           polls: polls,
                           service: _service,
                           onNewPoll: _openNewPollSheet,
+                          onDeletePoll: _deletePoll,
                         );
                       },
                     ),

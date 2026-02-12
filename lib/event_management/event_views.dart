@@ -16,35 +16,45 @@ mixin EventManagementViews
   }
 
   Widget _buildNotificationBar() {
-    if (_notificationMessage.isEmpty) {
-      return const SizedBox(height: 0);
-    }
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: _notificationIsError ? Colors.red : Colors.green,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _notificationIsError ? Icons.error_outline : Icons.check_circle,
-            color: Colors.white,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              _notificationMessage,
-              style: const TextStyle(color: Colors.white),
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      top: _notificationMessage.isEmpty ? -100 : 16,
+      left: 16,
+      right: 16,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 300),
+        opacity: _notificationMessage.isEmpty ? 0.0 : 1.0,
+        child: Material(
+          elevation: 4,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _notificationIsError ? Colors.red : Colors.green,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  _notificationIsError ? Icons.error_outline : Icons.check_circle,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _notificationMessage,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => setState(() => _notificationMessage = ''),
+                  icon: const Icon(Icons.close, color: Colors.white),
+                ),
+              ],
             ),
           ),
-          IconButton(
-            onPressed: () => setState(() => _notificationMessage = ''),
-            icon: const Icon(Icons.close, color: Colors.white),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1545,6 +1555,7 @@ mixin EventManagementViews
             controller: _titleController,
             label: 'Event Title*',
             hint: 'Give your event a clear name',
+            allowNumbers: false,
           ),
           const SizedBox(height: 12),
           Row(
@@ -1611,6 +1622,7 @@ mixin EventManagementViews
             label: 'Location*',
             hint: 'Where is the venue?',
             prefixIcon: Icons.location_on,
+            allowNumbers: false,
           ),
           const SizedBox(height: 12),
           _buildTextField(
@@ -1618,6 +1630,7 @@ mixin EventManagementViews
             label: 'Price (RM)',
             hint: '0.00 (leave 0 for free)',
             keyboardType: TextInputType.number,
+            numbersOnly: true,
           ),
           const SizedBox(height: 12),
           SwitchListTile(
@@ -1646,6 +1659,7 @@ mixin EventManagementViews
             label: 'Total Tickets',
             hint: 'Leave blank for unlimited',
             keyboardType: TextInputType.number,
+            numbersOnly: true,
           ),
           const SizedBox(height: 12),
           _buildImagePickerField(),
@@ -1696,6 +1710,8 @@ mixin EventManagementViews
     int maxLines = 1,
     IconData? prefixIcon,
     TextInputType? keyboardType,
+    bool allowNumbers = true,
+    bool numbersOnly = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1706,6 +1722,10 @@ mixin EventManagementViews
           controller: controller,
           maxLines: maxLines,
           keyboardType: keyboardType,
+          inputFormatters: _buildInputFormatters(
+            allowNumbers: allowNumbers,
+            numbersOnly: numbersOnly,
+          ),
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: prefixIcon == null ? null : Icon(prefixIcon),
@@ -1719,6 +1739,23 @@ mixin EventManagementViews
         ),
       ],
     );
+  }
+
+  List<TextInputFormatter> _buildInputFormatters({
+    required bool allowNumbers,
+    required bool numbersOnly,
+  }) {
+    final formatters = <TextInputFormatter>[];
+    
+    if (numbersOnly) {
+      // Allow only numbers and decimal point for price fields
+      formatters.add(FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')));
+    } else if (!allowNumbers) {
+      // Block numbers for text-only fields (title, location)
+      formatters.add(FilteringTextInputFormatter.deny(RegExp(r'[0-9]')));
+    }
+    
+    return formatters;
   }
 
   Widget _buildDropdownField({

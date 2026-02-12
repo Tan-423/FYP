@@ -648,6 +648,50 @@ ${rows.join()}
     }
   }
 
+  Future<void> _handleDelete(AccommodationItem item) async {
+    if (!_isOwnerLoggedIn) {
+      _addNotification('Please login as owner to delete.');
+      return;
+    }
+    
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Accommodation'),
+        content: Text(
+          'Are you sure you want to delete "${item.name}"? This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFEF4444),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Delete from Firestore
+      await _firestore.collection('accommodations').doc(item.id).delete();
+      
+      if (!mounted) return;
+      _addNotification('Successfully deleted ${item.name}');
+    } catch (e) {
+      if (!mounted) return;
+      _addNotification('Failed to delete accommodation. Please try again.');
+    }
+  }
+
   void _openDetail(AccommodationItem item) {
     setState(() {
       _selectedItem = item;
@@ -1032,6 +1076,8 @@ ${rows.join()}
       _isGuest = false;
       _isUpdatingOwnerProfile = false;
       _currentOwnerName = '';
+      _ownerEmailController.clear();
+      _ownerPasswordController.clear();
       _ownerProfileNameController.clear();
       _currentView = AccommodationView.auth;
     });
@@ -1365,6 +1411,7 @@ ${rows.join()}
                         _editingItem = item;
                         _currentView = AccommodationView.publish;
                       }),
+                  onDelete: _handleDelete,
                   onPublish:
                       () => setState(() {
                         _editingItem = null;

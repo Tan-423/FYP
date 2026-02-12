@@ -1971,6 +1971,7 @@ class OwnerView extends StatelessWidget {
     required this.accommodations,
     required this.onPublish,
     required this.onEdit,
+    required this.onDelete,
     required this.onProfile,
     required this.activeBookings,
     this.ownerName,
@@ -1981,6 +1982,7 @@ class OwnerView extends StatelessWidget {
   final List<AccommodationItem> accommodations;
   final VoidCallback onPublish;
   final ValueChanged<AccommodationItem> onEdit;
+  final ValueChanged<AccommodationItem> onDelete;
   final VoidCallback onProfile;
   final int activeBookings;
   final String? ownerName;
@@ -2185,7 +2187,21 @@ class OwnerView extends StatelessWidget {
                                     size: 16,
                                     color: Color(0xFF2563EB),
                                   ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
                                 ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  onPressed: () => onDelete(item),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 16,
+                                    color: Color(0xFFEF4444),
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                ),
+                                const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 6,
@@ -2417,22 +2433,236 @@ class PublishFormViewState extends State<PublishFormView> {
   }
 
   void _submit() {
-    final price = double.tryParse(_priceController.text.trim()) ?? 0;
+    // Validate property name
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter property name.')),
+      );
+      return;
+    }
+
+    // Validate name: no digits allowed
+    if (name.contains(RegExp(r'[0-9]'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Property name cannot contain digits.')),
+      );
+      return;
+    }
+
+    // Validate location
+    final location = _locationController.text.trim();
+    if (location.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter location.')),
+      );
+      return;
+    }
+
+    // Validate location: no digits allowed
+    if (location.contains(RegExp(r'[0-9]'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Location cannot contain digits.')),
+      );
+      return;
+    }
+
+    // Validate price
+    final priceText = _priceController.text.trim();
+    if (priceText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter price.')),
+      );
+      return;
+    }
+
+    // Validate price: only numbers and decimal point allowed
+    if (!RegExp(r'^[0-9.]+$').hasMatch(priceText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Price can only contain numbers.')),
+      );
+      return;
+    }
+
+    final price = double.tryParse(priceText) ?? 0;
+    if (price <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a valid price greater than 0.')),
+      );
+      return;
+    }
+
+    // Validate description
+    final description = _descriptionController.text.trim();
+    if (description.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter property description.')),
+      );
+      return;
+    }
+
+    // Validate description: no digits allowed
+    if (description.contains(RegExp(r'[0-9]'))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Description cannot contain digits.')),
+      );
+      return;
+    }
+
+    // Validate facilities
+    final facilitiesText = _facilitiesController.text.trim();
+    if (facilitiesText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter facilities (e.g., WiFi, Pool, Gym).')),
+      );
+      return;
+    }
+
     final facilities =
-        _facilitiesController.text
+        facilitiesText
             .split(',')
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
             .toList();
-    final standardCount =
-        int.tryParse(_standardRoomController.text.trim()) ?? 0;
-    final deluxeCount = int.tryParse(_deluxeRoomController.text.trim()) ?? 0;
-    final suiteCount = int.tryParse(_suiteRoomController.text.trim()) ?? 0;
-    final standardCap = int.tryParse(_standardCapController.text.trim()) ?? 2;
-    final deluxeCap = int.tryParse(_deluxeCapController.text.trim()) ?? 3;
-    final suiteCap = int.tryParse(_suiteCapController.text.trim()) ?? 4;
-    final extraBedFee =
-        double.tryParse(_extraBedFeeController.text.trim()) ?? 0;
+    
+    // Validate room counts: only numbers allowed
+    final standardRoomText = _standardRoomController.text.trim();
+    if (standardRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(standardRoomText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Standard room quantity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final deluxeRoomText = _deluxeRoomController.text.trim();
+    if (deluxeRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(deluxeRoomText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deluxe room quantity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final suiteRoomText = _suiteRoomController.text.trim();
+    if (suiteRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(suiteRoomText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Suite quantity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final standardCount = int.tryParse(standardRoomText) ?? 0;
+    final deluxeCount = int.tryParse(deluxeRoomText) ?? 0;
+    final suiteCount = int.tryParse(suiteRoomText) ?? 0;
+
+    // Validate at least one room type has a value
+    if (standardRoomText.isEmpty && deluxeRoomText.isEmpty && suiteRoomText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter quantity for at least one room type (Standard, Deluxe, or Suite).'),
+        ),
+      );
+      return;
+    }
+
+    // Validate at least one room type has quantity > 0
+    if (standardCount == 0 && deluxeCount == 0 && suiteCount == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please specify at least one room type with quantity greater than 0.'),
+        ),
+      );
+      return;
+    }
+
+    // Validate room capacities: check empty first
+    final standardCapText = _standardCapController.text.trim();
+    if (standardCapText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter standard room capacity.')),
+      );
+      return;
+    }
+
+    if (!RegExp(r'^[0-9]+$').hasMatch(standardCapText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Standard room capacity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final deluxeCapText = _deluxeCapController.text.trim();
+    if (deluxeCapText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter deluxe room capacity.')),
+      );
+      return;
+    }
+
+    if (!RegExp(r'^[0-9]+$').hasMatch(deluxeCapText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deluxe room capacity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final suiteCapText = _suiteCapController.text.trim();
+    if (suiteCapText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter suite capacity.')),
+      );
+      return;
+    }
+
+    if (!RegExp(r'^[0-9]+$').hasMatch(suiteCapText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Suite capacity can only contain numbers.')),
+      );
+      return;
+    }
+
+    final standardCap = int.tryParse(standardCapText) ?? 2;
+    final deluxeCap = int.tryParse(deluxeCapText) ?? 3;
+    final suiteCap = int.tryParse(suiteCapText) ?? 4;
+
+    // Validate capacity for rooms with quantity > 0
+    if (standardCount > 0 && standardCap <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Standard room capacity must be greater than 0.'),
+        ),
+      );
+      return;
+    }
+
+    if (deluxeCount > 0 && deluxeCap <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Deluxe room capacity must be greater than 0.'),
+        ),
+      );
+      return;
+    }
+
+    if (suiteCount > 0 && suiteCap <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Suite capacity must be greater than 0.'),
+        ),
+      );
+      return;
+    }
+
+    // Validate extra bed fee: only numbers allowed
+    final extraBedFeeText = _extraBedFeeController.text.trim();
+    if (extraBedFeeText.isNotEmpty && !RegExp(r'^[0-9.]+$').hasMatch(extraBedFeeText)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Extra bed fee can only contain numbers.')),
+      );
+      return;
+    }
+
+    final extraBedFee = double.tryParse(extraBedFeeText) ?? 0;
+    
     final roomTypes = <String, int>{
       if (standardCount > 0) 'Standard Room': standardCount,
       if (deluxeCount > 0) 'Deluxe Room': deluxeCount,
@@ -2445,11 +2675,11 @@ class PublishFormViewState extends State<PublishFormView> {
     };
     widget.onPublish(
       NewPropertyForm(
-        name: _nameController.text.trim(),
+        name: name,
         type: _type,
-        location: _locationController.text.trim(),
+        location: location,
         price: price,
-        description: _descriptionController.text.trim(),
+        description: description,
         facilities: facilities,
         roomTypes: roomTypes,
         roomCapacities: roomCapacities,
@@ -2706,7 +2936,10 @@ class PublishFormViewState extends State<PublishFormView> {
                   )
                   : const Text(
                     'Publish Property',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
         ),
       ],

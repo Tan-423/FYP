@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
@@ -61,11 +62,15 @@ class _EventManagementScreenState extends State<EventManagementScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFE5E7EB),
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
+            Column(
+              children: [
+                Expanded(child: _buildContent()),
+                _buildBottomNav(),
+              ],
+            ),
             _buildNotificationBar(),
-            Expanded(child: _buildContent()),
-            _buildBottomNav(),
           ],
         ),
       ),
