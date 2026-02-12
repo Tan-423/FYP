@@ -661,6 +661,7 @@ class UserSplitTile extends StatelessWidget {
           ),
           subtitle: Text(isPayer ? 'Paid full amount' : 'Owes share'),
           trailing: Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -671,6 +672,11 @@ class UserSplitTile extends StatelessWidget {
               if (!isPayer)
                 TextButton(
                   onPressed: onToggleStatus,
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   child: Text(
                     status == BillStatus.settled ? 'Settled' : 'Pending',
                     style: const TextStyle(fontSize: 11),

@@ -6,7 +6,6 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'bill_tracking_currency_service.dart';
 import 'bill_tracking_models.dart';
 import 'bill_tracking_widgets.dart';
 
@@ -235,6 +234,17 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
   void _addMember() {
     if (_memberController.text.trim().isEmpty) return;
     final name = _memberController.text.trim();
+    
+    // Validate that name doesn't contain digits
+    if (RegExp(r'\d').hasMatch(name)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Member name cannot contain digits'),
+        ),
+      );
+      return;
+    }
+    
     setState(() {
       _members.add(
         BillUser(
@@ -315,6 +325,9 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
                     borderSide: BorderSide.none,
                   ),
                 ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.deny(RegExp(r'\d')),
+                ],
                 onSubmitted: (_) => _addMember(),
               ),
             ),
@@ -402,12 +415,8 @@ class _BillCreateBillState extends State<BillCreateBill> {
   final Map<String, TextEditingController> _nameControllers = {};
   final Map<String, TextEditingController> _priceControllers = {};
   final ImagePicker _imagePicker = ImagePicker();
-  final CurrencyRateService _rateService = CurrencyRateService();
   bool _isScanning = false;
   List<BillItem>? _scannedItems; // Holds scanned items before confirmation
-  Map<String, double> _liveRates = {};
-  bool _isLoadingRates = false;
-  String? _rateError;
 
   @override
   void initState() {
@@ -415,7 +424,6 @@ class _BillCreateBillState extends State<BillCreateBill> {
     _payerId = widget.users.isNotEmpty ? widget.users.first.id : '';
     _sstController.text = _sst.toString();
     _serviceController.text = _serviceCharge.toString();
-    _loadRates();
   }
 
   @override
@@ -431,37 +439,8 @@ class _BillCreateBillState extends State<BillCreateBill> {
     super.dispose();
   }
 
-  Future<void> _loadRates() async {
-    setState(() {
-      _isLoadingRates = true;
-      _rateError = null;
-    });
-    try {
-      final codes = billCurrencies.keys.toList();
-      final rates = await _rateService.fetchRatesToMyr(symbols: codes);
-      if (!mounted) return;
-      setState(() {
-        _liveRates = rates;
-        _isLoadingRates = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingRates = false;
-        _rateError = 'Unable to load live rates';
-      });
-    }
-  }
-
   double _getRateForCurrency(String currency) {
-    return _liveRates[currency] ?? billCurrencies[currency]!.rate;
-  }
-
-  String _rateSourceLabel() {
-    if (_isLoadingRates) return 'Loading live rate...';
-    if (_rateError != null) return _rateError!;
-    if (_liveRates.isNotEmpty) return 'Live rate';
-    return 'Static rate';
+    return billCurrencies[currency]!.rate;
   }
 
   Future<void> _showScanOptions() async {
@@ -1049,13 +1028,6 @@ class _BillCreateBillState extends State<BillCreateBill> {
           'Rate: 1 $_currency = RM ${_getRateForCurrency(_currency).toStringAsFixed(4)}',
           style: const TextStyle(color: Colors.black54, fontSize: 12),
         ),
-        Text(
-          _rateSourceLabel(),
-          style: TextStyle(
-            color: _rateError == null ? Colors.black38 : Colors.redAccent,
-            fontSize: 11,
-          ),
-        ),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -1326,13 +1298,6 @@ class _BillCreateBillState extends State<BillCreateBill> {
           Text(
             'Rate: 1 $_currency = RM ${_getRateForCurrency(_currency).toStringAsFixed(4)}',
             style: const TextStyle(color: Colors.black54, fontSize: 12),
-          ),
-          Text(
-            _rateSourceLabel(),
-            style: TextStyle(
-              color: _rateError == null ? Colors.black38 : Colors.redAccent,
-              fontSize: 11,
-            ),
           ),
           const SizedBox(height: 12),
           Row(

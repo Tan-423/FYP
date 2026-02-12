@@ -2320,7 +2320,40 @@ ${rows.join()}
     });
   }
 
+  Future<bool> _confirmDeleteEvent() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Event?'),
+            content: const Text(
+              'This will permanently delete the event and all associated data. '
+              'This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _deleteEvent(String eventId) async {
+    final confirmed = await _confirmDeleteEvent();
+    if (!confirmed) {
+      return;
+    }
     try {
       await _eventsRef.doc(eventId).delete();
       _showNotification('Event removed permanently.');
@@ -2458,16 +2491,67 @@ ${rows.join()}
     if (_isPublishing) {
       return;
     }
-    if (_titleController.text.trim().isEmpty ||
-        _locationController.text.trim().isEmpty ||
-        _newEventDate.isEmpty) {
-      _showNotification('Please fill in all required fields.', isError: true);
+    
+    // Validate required fields
+    final title = _titleController.text.trim();
+    final location = _locationController.text.trim();
+    final priceText = _priceController.text.trim();
+    final ticketTotalText = _ticketTotalController.text.trim();
+    
+    // Check for empty required fields
+    if (title.isEmpty) {
+      _showNotification('Event title is required.', isError: true);
+      return;
+    }
+    
+    if (location.isEmpty) {
+      _showNotification('Location is required.', isError: true);
+      return;
+    }
+    
+    if (_newEventDate.isEmpty) {
+      _showNotification('Event date is required.', isError: true);
+      return;
+    }
+    
+    // Validate that title and location don't contain numbers
+    if (RegExp(r'\d').hasMatch(title)) {
+      _showNotification(
+        'Event title should not contain numbers.',
+        isError: true,
+      );
+      return;
+    }
+    
+    if (RegExp(r'\d').hasMatch(location)) {
+      _showNotification(
+        'Location should not contain numbers.',
+        isError: true,
+      );
+      return;
+    }
+    
+    // Validate price field contains only numbers
+    if (priceText.isNotEmpty && !RegExp(r'^[0-9.]+$').hasMatch(priceText)) {
+      _showNotification(
+        'Price must contain only numbers.',
+        isError: true,
+      );
+      return;
+    }
+    
+    // Validate total tickets contains only numbers
+    if (ticketTotalText.isNotEmpty && 
+        !RegExp(r'^[0-9]+$').hasMatch(ticketTotalText)) {
+      _showNotification(
+        'Total tickets must contain only numbers.',
+        isError: true,
+      );
       return;
     }
 
     setState(() => _isPublishing = true);
-    final double price = double.tryParse(_priceController.text.trim()) ?? 0;
-    final String ticketTotalText = _ticketTotalController.text.trim();
+    final double price = double.tryParse(priceText) ?? 0;
     final int? ticketTotal =
         ticketTotalText.isEmpty ? null : int.tryParse(ticketTotalText);
     if (ticketTotalText.isNotEmpty && ticketTotal == null) {
@@ -2535,8 +2619,8 @@ ${rows.join()}
     }
     final newEvent = <String, dynamic>{
       'ID': eventId,
-      'Name': _titleController.text.trim(),
-      'Location': _locationController.text.trim(),
+      'Name': title,
+      'Location': location,
       'Date':
           parsedDate == null ? _newEventDate : Timestamp.fromDate(parsedDate),
       'Price': price,

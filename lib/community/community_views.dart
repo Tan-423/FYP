@@ -56,6 +56,7 @@ class _FeedTab extends StatelessWidget {
                   onLike: () => service.toggleLike(post.id),
                   onDelete: () => onDelete(post.id),
                   onOpenComments: () => onOpenComments(post),
+                  currentUserId: service.currentUserId,
                 );
               },
             ),
@@ -70,12 +71,16 @@ class _ChatsTab extends StatefulWidget {
     required this.service,
     required this.onJoinChat,
     required this.onNewGroup,
+    required this.onEditGroup,
+    required this.onDeleteGroup,
   });
 
   final List<CommunityGroup> groups;
   final CommunityFirebaseService service;
   final ValueChanged<CommunityGroup> onJoinChat;
   final VoidCallback onNewGroup;
+  final ValueChanged<CommunityGroup> onEditGroup;
+  final ValueChanged<String> onDeleteGroup;
 
   @override
   State<_ChatsTab> createState() => _ChatsTabState();
@@ -232,29 +237,99 @@ class _ChatsTabState extends State<_ChatsTab> {
                         ],
                       ),
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Icon(
-                          group.type == GroupType.private
-                              ? Icons.lock
-                              : Icons.public,
-                          size: 14,
-                          color:
-                              group.type == GroupType.private
-                                  ? const Color(0xFFF59E0B)
-                                  : kBlue,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${group.membersCount} members',
-                          style: const TextStyle(
-                            color: kTextMuted,
-                            fontSize: 11,
+                    if (group.adminId == widget.service.currentUserId)
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: kTextMuted),
+                        color: Colors.white,
+                        onSelected: (value) async {
+                          if (value == 'edit') {
+                            widget.onEditGroup(group);
+                          } else if (value == 'delete') {
+                            final shouldDelete =
+                                await showDialog<bool>(
+                                  context: context,
+                                  builder:
+                                      (context) => AlertDialog(
+                                        title: const Text('Delete group?'),
+                                        content: const Text(
+                                          'This will delete all messages and remove all members.',
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed:
+                                                () =>
+                                                    Navigator.of(context)
+                                                        .pop(false),
+                                            child: const Text('Cancel'),
+                                          ),
+                                          FilledButton(
+                                            onPressed:
+                                                () =>
+                                                    Navigator.of(context)
+                                                        .pop(true),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: Colors.redAccent,
+                                            ),
+                                            child: const Text('Delete'),
+                                          ),
+                                        ],
+                                      ),
+                                ) ??
+                                false;
+                            if (shouldDelete) widget.onDeleteGroup(group.id);
+                          }
+                        },
+                        itemBuilder:
+                            (context) => const [
+                              PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_outlined, color: kBlue),
+                                    SizedBox(width: 8),
+                                    Text('Edit Group'),
+                                  ],
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.redAccent,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text('Delete Group'),
+                                  ],
+                                ),
+                              ),
+                            ],
+                      )
+                    else
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Icon(
+                            group.type == GroupType.private
+                                ? Icons.lock
+                                : Icons.public,
+                            size: 14,
+                            color:
+                                group.type == GroupType.private
+                                    ? const Color(0xFFF59E0B)
+                                    : kBlue,
                           ),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${group.membersCount} members',
+                            style: const TextStyle(
+                              color: kTextMuted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -459,11 +534,13 @@ class _VoteTab extends StatelessWidget {
     required this.polls,
     required this.service,
     required this.onNewPoll,
+    required this.onDeletePoll,
   });
 
   final List<CommunityPoll> polls;
   final CommunityFirebaseService service;
   final VoidCallback onNewPoll;
+  final ValueChanged<String> onDeletePoll;
 
   @override
   Widget build(BuildContext context) {
@@ -507,6 +584,7 @@ class _VoteTab extends StatelessWidget {
                       poll: poll,
                       options: options,
                       selectedOptionId: voteSnapshot.data,
+                      currentUserId: service.currentUserId,
                       onVote: (optionId) async {
                         try {
                           await service.vote(poll.id, optionId);
@@ -519,6 +597,7 @@ class _VoteTab extends StatelessWidget {
                           );
                         }
                       },
+                      onDelete: () => onDeletePoll(poll.id),
                     );
                   },
                 );

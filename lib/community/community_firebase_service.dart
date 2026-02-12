@@ -209,6 +209,7 @@ class CommunityFirebaseService {
       code: code,
       membersCount: 1,
       createdAt: DateTime.now(),
+      adminId: currentUserId,
     );
     await groupRef.set({
       ...group.toMap(),
@@ -218,6 +219,21 @@ class CommunityFirebaseService {
       'joinedAt': DateTime.now(),
       'userName': _currentUserName,
     });
+  }
+
+  Future<void> updateGroup({
+    required String groupId,
+    required String name,
+    required String description,
+  }) async {
+    await _groupsRef.doc(groupId).update({
+      'name': name,
+      'description': description,
+    });
+  }
+
+  Future<void> deleteGroup(String groupId) async {
+    await _groupsRef.doc(groupId).delete();
   }
 
   Future<CommunityGroup?> findGroupByCode(String code) async {
@@ -317,11 +333,16 @@ class CommunityFirebaseService {
       question: question,
       totalVotes: 0,
       createdAt: DateTime.now(),
+      creatorId: currentUserId,
     );
     await pollRef.set(poll.toMap());
     for (final option in options) {
       await pollRef.collection('options').add({'label': option, 'votes': 0});
     }
+  }
+
+  Future<void> deletePoll(String pollId) async {
+    await _pollsRef.doc(pollId).delete();
   }
 
   Future<void> vote(String pollId, String optionId) async {
