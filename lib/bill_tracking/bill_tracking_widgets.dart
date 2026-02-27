@@ -64,6 +64,15 @@ class _BillGroupSelectorState extends State<BillGroupSelector> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      if (widget.group.description.isNotEmpty)
+                        Text(
+                          widget.group.description,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.black45,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                     ],
                   ),
                 ),
@@ -97,6 +106,17 @@ class _BillGroupSelectorState extends State<BillGroupSelector> {
                 for (final group in widget.groups)
                   ListTile(
                     title: Text(group.name),
+                    subtitle: group.description.isNotEmpty
+                        ? Text(
+                            group.description,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.black45,
+                            ),
+                          )
+                        : null,
                     trailing:
                         widget.group.id == group.id
                             ? const Icon(

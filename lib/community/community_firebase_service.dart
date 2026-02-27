@@ -157,8 +157,43 @@ class CommunityFirebaseService {
     return File(sourcePath).copy(targetPath);
   }
 
+  Future<void> _deleteSubcollection(
+    DocumentReference docRef,
+    String subcollection,
+  ) async {
+    const batchSize = 100;
+    while (true) {
+      final snapshot =
+          await docRef.collection(subcollection).limit(batchSize).get();
+      if (snapshot.docs.isEmpty) break;
+      final batch = _db.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      if (snapshot.docs.length < batchSize) break;
+    }
+  }
+
   Future<void> deletePost(String postId) async {
-    await _postsRef.doc(postId).delete();
+    final postRef = _postsRef.doc(postId);
+
+    // Fetch post to get imageUrl before deleting
+    final postSnap = await postRef.get();
+    final imageUrl = postSnap.data()?['imageUrl'] as String?;
+
+    // Delete subcollections first
+    await _deleteSubcollection(postRef, 'comments');
+    await _deleteSubcollection(postRef, 'likes');
+
+    // Delete Storage image if present
+    if (imageUrl != null && imageUrl.isNotEmpty) {
+      try {
+        await _storage.refFromURL(imageUrl).delete();
+      } catch (_) {}
+    }
+
+    await postRef.delete();
   }
 
   Future<void> addComment(String postId, String text) async {
@@ -233,7 +268,10 @@ class CommunityFirebaseService {
   }
 
   Future<void> deleteGroup(String groupId) async {
-    await _groupsRef.doc(groupId).delete();
+    final groupRef = _groupsRef.doc(groupId);
+    await _deleteSubcollection(groupRef, 'messages');
+    await _deleteSubcollection(groupRef, 'members');
+    await groupRef.delete();
   }
 
   Future<CommunityGroup?> findGroupByCode(String code) async {
@@ -342,7 +380,10 @@ class CommunityFirebaseService {
   }
 
   Future<void> deletePoll(String pollId) async {
-    await _pollsRef.doc(pollId).delete();
+    final pollRef = _pollsRef.doc(pollId);
+    await _deleteSubcollection(pollRef, 'options');
+    await _deleteSubcollection(pollRef, 'votes');
+    await pollRef.delete();
   }
 
   Future<void> vote(String pollId, String optionId) async {

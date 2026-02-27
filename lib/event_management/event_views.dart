@@ -87,7 +87,7 @@ mixin EventManagementViews
               child: ElevatedButton.icon(
                 onPressed: _loginAsTraveler,
                 icon: const Icon(Icons.person),
-                label: const Text('Login as Traveler'),
+                label: Text('Continue as ${_travelerDisplayName()}'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   backgroundColor: Colors.blue,
@@ -857,19 +857,25 @@ mixin EventManagementViews
           child: Icon(icon, color: Colors.blue),
         ),
         const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.black54,
-                fontWeight: FontWeight.w600,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
+              Text(
+                value,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                softWrap: true,
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -1261,12 +1267,31 @@ mixin EventManagementViews
                           onPressed: () => _startEditingEvent(event),
                           icon: const Icon(Icons.edit, color: Colors.blue),
                         ),
-                        IconButton(
-                          onPressed: () => _deleteEvent(event.id),
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: Colors.red,
-                          ),
+                        Builder(
+                          builder: (context) {
+                            final hasSoldTickets =
+                                (event.ticketsSold ?? 0) > 0;
+                            return IconButton(
+                              onPressed:
+                                  hasSoldTickets
+                                      ? () => _showNotification(
+                                        'Cannot delete: tickets have already been sold for this event.',
+                                        isError: true,
+                                      )
+                                      : () => _deleteEvent(event.id),
+                              tooltip:
+                                  hasSoldTickets
+                                      ? 'Tickets sold — deletion disabled'
+                                      : 'Delete event',
+                              icon: Icon(
+                                Icons.delete_outline,
+                                color:
+                                    hasSoldTickets
+                                        ? Colors.grey.shade400
+                                        : Colors.red,
+                              ),
+                            );
+                          },
                         ),
                       ],
                     ),
@@ -1654,12 +1679,52 @@ mixin EventManagementViews
             maxLines: 4,
           ),
           const SizedBox(height: 12),
-          _buildTextField(
-            controller: _ticketTotalController,
-            label: 'Total Tickets',
-            hint: 'Leave blank for unlimited',
-            keyboardType: TextInputType.number,
-            numbersOnly: true,
+          Builder(
+            builder: (context) {
+              final soldCount =
+                  _editingEventTicketsSold ??
+                  ((_editingEventTicketTotal != null &&
+                          _editingEventTicketsRemaining != null)
+                      ? _editingEventTicketTotal! -
+                          _editingEventTicketsRemaining!
+                      : 0);
+              final hasEditingSoldTickets =
+                  isEditing && (soldCount) > 0;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildTextField(
+                    controller: _ticketTotalController,
+                    label: 'Total Tickets',
+                    hint: 'Leave blank for unlimited',
+                    keyboardType: TextInputType.number,
+                    numbersOnly: true,
+                  ),
+                  if (hasEditingSoldTickets) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: Colors.orange,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '$soldCount ticket(s) sold — you may only increase the total, not decrease it.',
+                            style: const TextStyle(
+                              color: Colors.orange,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 12),
           _buildImagePickerField(),

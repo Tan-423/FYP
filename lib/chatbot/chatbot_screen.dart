@@ -85,9 +85,19 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     final uri = Uri.parse(
       'https://dialogflow.googleapis.com/v2/projects/$_projectId/agent/sessions/$_sessionId:detectIntent',
     );
+    // Always use 'en' so Dialogflow's English-trained intents always match.
+    // Pass the selected UI language in queryParams.payload so the fulfillment
+    // can reply in the user's chosen language.
     final body = jsonEncode({
       'queryInput': {
-        'text': {'text': message, 'languageCode': _language},
+        'text': {'text': message, 'languageCode': 'en'},
+      },
+      'queryParams': {
+        'payload': {
+          'fields': {
+            'uiLang': {'stringValue': _language},
+          },
+        },
       },
     });
     final response = await _authClient!.post(
@@ -132,7 +142,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       return;
     }
 
-    final reply = await _fetchDialogflowReply(textToSend.trim());
+    // Translate BM/CN to English so Dialogflow intent matching always works.
+    // The original text is already shown in the chat bubble above.
+    final queryForDialogflow = _language == 'en'
+        ? textToSend.trim()
+        : translateQueryToEnglish(textToSend.trim());
+
+    final reply = await _fetchDialogflowReply(queryForDialogflow);
     if (!mounted) return;
     setState(() {
       if (reply != null && reply.trim().isNotEmpty) {
@@ -221,7 +237,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'WanderEase Bot',
+                              'ASH ChatBot',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
@@ -364,16 +380,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        onPressed: () {},
-                        icon: const Icon(Icons.emoji_emotions_outlined),
-                        color: const Color(0xFF94A3B8),
-                      ),
                       Expanded(
                         child: TextField(
                           controller: _inputController,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _handleSendMessage(),
+                          textInputAction: TextInputAction.done,
                           onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
                             hintText: inputHintForLanguage(_language),

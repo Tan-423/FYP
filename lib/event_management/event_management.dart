@@ -11,6 +11,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../secondary_firebase.dart';
+
 part 'event_models.dart';
 part 'event_actions.dart';
 part 'event_views.dart';

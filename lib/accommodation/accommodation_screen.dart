@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../secondary_firebase.dart';
 import 'accommodation_models.dart';
 import 'accommodation_views.dart';
 import 'accommodation_widgets.dart';
@@ -27,6 +30,7 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
   bool _didResumePayment = false;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseAuth? _secondaryAuth;
   final CollectionReference<Map<String, dynamic>> _paymentsRef =
       FirebaseFirestore.instance.collection('AccommodationPayments');
   final CollectionReference<Map<String, dynamic>> _bookingsRef =
@@ -75,6 +79,15 @@ class _AccommodationScreenState extends State<AccommodationScreen> {
     AccommodationView.ownerLogin,
     AccommodationView.ownerProfile,
   };
+
+  String get _currentUserDisplayName {
+    final user = _auth.currentUser;
+    final display = user?.displayName?.trim();
+    if (display != null && display.isNotEmpty) return display;
+    final email = user?.email?.trim();
+    if (email != null && email.isNotEmpty) return email.split('@').first;
+    return 'Traveler';
+  }
 
   String _escapeHtml(String value) {
     return value
@@ -270,7 +283,7 @@ ${rows.join()}
 
   Stream<int> _ownerActiveBookingsCount() {
     if (!_isOwnerLoggedIn) return Stream.value(0);
-    final ownerId = _auth.currentUser?.uid;
+    final ownerId = _secondaryAuth?.currentUser?.uid;
     if (ownerId == null) return Stream.value(0);
     return _bookingsRef
         .where('OwnerId', isEqualTo: ownerId)
@@ -601,9 +614,26 @@ ${rows.join()}
     }
     if (_isPublishing) return;
     setState(() => _isPublishing = true);
-    final ownerId = _isOwnerLoggedIn ? _auth.currentUser?.uid : null;
+    final ownerId = _isOwnerLoggedIn ? _secondaryAuth?.currentUser?.uid : null;
     final wasEditing = _editingItem != null;
     try {
+      // Upload newly picked images to Firebase Storage
+      final storage = FirebaseStorage.instance;
+      final List<String> allImageUrls = List<String>.from(form.existingImageUrls);
+      for (final path in form.newImagePaths) {
+        final file = File(path);
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final ref = storage
+            .ref()
+            .child('accommodation_images/${timestamp}_${allImageUrls.length}.jpg');
+        await ref.putFile(file);
+        final url = await ref.getDownloadURL();
+        allImageUrls.add(url);
+      }
+
+      final firstImage =
+          allImageUrls.isNotEmpty ? allImageUrls.first : fallbackAccommodationImageUrl;
+
       final payload = {
         'name': name,
         'location': location,
@@ -615,7 +645,8 @@ ${rows.join()}
         'roomTypes': form.roomTypes,
         'roomCapacities': form.roomCapacities,
         'extraBedFee': form.extraBedFee,
-        'image': fallbackAccommodationImageUrl,
+        'image': firstImage,
+        'images': allImageUrls,
         'ownerId': ownerId,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -653,37 +684,73 @@ ${rows.join()}
       _addNotification('Please login as owner to delete.');
       return;
     }
-    
+
+    // Check for active bookings before allowing deletion
+    try {
+      final activeBookingsSnapshot =
+          await _bookingsRef
+              .where('AccommodationId', isEqualTo: item.id)
+              .where('Status', isEqualTo: 'Confirmed')
+              .limit(1)
+              .get();
+
+      if (activeBookingsSnapshot.docs.isNotEmpty) {
+        if (!mounted) return;
+        await showDialog<void>(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Cannot Delete Accommodation'),
+                content: Text(
+                  '"${item.name}" has active bookings and cannot be deleted. '
+                  'Please wait until all bookings are completed or cancelled before deleting.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+        );
+        return;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _addNotification('Failed to check bookings. Please try again.');
+      return;
+    }
+
     // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Accommodation'),
-        content: Text(
-          'Are you sure you want to delete "${item.name}"? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFEF4444),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Accommodation'),
+            content: Text(
+              'Are you sure you want to delete "${item.name}"? This action cannot be undone.',
             ),
-            child: const Text('Delete'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFEF4444),
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
 
     if (confirmed != true) return;
 
     try {
-      // Delete from Firestore
       await _firestore.collection('accommodations').doc(item.id).delete();
-      
+
       if (!mounted) return;
       _addNotification('Successfully deleted ${item.name}');
     } catch (e) {
@@ -1049,7 +1116,12 @@ ${rows.join()}
     if (_isAuthenticating) return;
     setState(() => _isAuthenticating = true);
     try {
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final secondaryAuth = await getSecondaryAuth();
+      _secondaryAuth = secondaryAuth;
+      await secondaryAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       if (!mounted) return;
       await _loadOwnerProfile();
       setState(() {
@@ -1071,6 +1143,7 @@ ${rows.join()}
 
   Future<void> _logoutOwner() async {
     if (!mounted) return;
+    await _secondaryAuth?.signOut();
     setState(() {
       _isOwnerLoggedIn = false;
       _isGuest = false;
@@ -1085,7 +1158,7 @@ ${rows.join()}
   }
 
   Future<void> _loadOwnerProfile() async {
-    final ownerId = _auth.currentUser?.uid;
+    final ownerId = _secondaryAuth?.currentUser?.uid;
     if (ownerId == null) return;
     try {
       final ownerProfile = await _ownersRef.doc(ownerId).get();
@@ -1114,7 +1187,7 @@ ${rows.join()}
       _addNotification('Organization name cannot be empty.');
       return;
     }
-    final ownerId = _auth.currentUser?.uid;
+    final ownerId = _secondaryAuth?.currentUser?.uid;
     if (ownerId == null) {
       _addNotification('Please login again.');
       return;
@@ -1124,7 +1197,7 @@ ${rows.join()}
       await _ownersRef.doc(ownerId).set({
         'id': ownerId,
         'name': name,
-        'email': _auth.currentUser?.email,
+        'email': _secondaryAuth?.currentUser?.email,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (!mounted) return;
@@ -1174,6 +1247,7 @@ ${rows.join()}
       case AccommodationView.auth:
         return OwnerAuthView(
           onBack: _exitToMainMenu,
+          userName: _currentUserDisplayName,
           onContinueAsGuest:
               () => setState(() {
                 _isGuest = true;
@@ -1403,7 +1477,7 @@ ${rows.join()}
               builder: (context, countSnapshot) {
                 return OwnerView(
                   accommodations: snapshot.data ?? [],
-                  ownerId: _isOwnerLoggedIn ? _auth.currentUser?.uid : null,
+                  ownerId: _isOwnerLoggedIn ? _secondaryAuth?.currentUser?.uid : null,
                   activeBookings: countSnapshot.data ?? 0,
                   ownerName: _currentOwnerName,
                   onEdit:
