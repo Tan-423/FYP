@@ -73,6 +73,7 @@ mixin EventManagementActions on State<EventManagementScreen> {
   String _currentUserName = 'Guest';
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  FirebaseAuth? _secondaryAuth;
   final CollectionReference<Map<String, dynamic>> _organizersRef =
       FirebaseFirestore.instance.collection('Organizer');
 
@@ -104,6 +105,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
   bool get _isOrganizer => _currentUserRole == 'organizer';
   bool get _isLoggedIn => _currentUserRole != null;
 
+  String _travelerDisplayName() {
+    final user = _auth.currentUser;
+    final display = user?.displayName?.trim();
+    if (display != null && display.isNotEmpty) return display;
+    final email = user?.email?.trim();
+    if (email != null && email.isNotEmpty) return email.split('@').first;
+    return 'Traveler';
+  }
+
   Stream<List<EventModel>> _eventsStream() {
     return _eventsRef.snapshots().map((snapshot) {
       final events = <EventModel>[];
@@ -119,9 +129,19 @@ mixin EventManagementActions on State<EventManagementScreen> {
 
   Stream<List<TicketModel>> _ticketsStream() {
     final userId = _currentUserId ?? 'guest';
-    return _ticketsRef.where('UserId', isEqualTo: userId).snapshots().map((
-      snapshot,
-    ) {
+    final firebaseUid = _auth.currentUser?.uid;
+
+    // Build a set of possible user IDs to match tickets created in any session.
+    // Covers cases where Firebase Auth UID differs from the locally stored ID.
+    final userIds = <String>{userId};
+    if (firebaseUid != null && firebaseUid.isNotEmpty) {
+      userIds.add(firebaseUid);
+    }
+
+    return _ticketsRef
+        .where('UserId', whereIn: userIds.toList())
+        .snapshots()
+        .map((snapshot) {
       final tickets = <TicketModel>[];
       for (final doc in snapshot.docs) {
         final ticket = _ticketFromDoc(doc);
@@ -135,8 +155,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
 
   Stream<List<PaymentRecord>> _failedPaymentsStream() {
     final userId = _currentUserId ?? 'guest';
+    final firebaseUid = _auth.currentUser?.uid;
+
+    final userIds = <String>{userId};
+    if (firebaseUid != null && firebaseUid.isNotEmpty) {
+      userIds.add(firebaseUid);
+    }
+
     return _paymentsRef
-        .where('UserId', isEqualTo: userId)
+        .where('UserId', whereIn: userIds.toList())
         .where(
           'Status',
           whereIn: ['FAILED', 'CREATED', 'RETRYING', 'CANCELLED'],
@@ -1246,13 +1273,14 @@ ${rows.join()}
   }
 
   void _loginAsTraveler() {
+    final name = _travelerDisplayName();
     setState(() {
       _currentUserRole = 'traveler';
       _currentUserId = _auth.currentUser?.uid ?? 'traveler';
-      _currentUserName = 'Traveler';
+      _currentUserName = name;
       _view = EventView.explore;
     });
-    _showNotification('Logged in as traveler.');
+    _showNotification('Logged in as $name.');
   }
 
   void _openOrganizerLogin() {
@@ -1284,7 +1312,9 @@ ${rows.join()}
     }
     setState(() => _isAuthenticating = true);
     try {
-      final credential = await _auth.signInWithEmailAndPassword(
+      final secondaryAuth = await getSecondaryAuth();
+      _secondaryAuth = secondaryAuth;
+      final credential = await secondaryAuth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -1335,6 +1365,7 @@ ${rows.join()}
   }
 
   void _logout() {
+    _secondaryAuth?.signOut();
     setState(() {
       _currentUserRole = null;
       _currentUserId = null;
@@ -2206,6 +2237,21 @@ ${rows.join()}
   }
 
   Future<void> _cancelTicket(TicketModel ticket) async {
+    final eventDate = DateTime.tryParse(ticket.event.date);
+    if (eventDate != null) {
+      final today = DateTime.now();
+      final todayOnly = DateTime(today.year, today.month, today.day);
+      final eventOnly = DateTime(eventDate.year, eventDate.month, eventDate.day);
+      final daysUntilEvent = eventOnly.difference(todayOnly).inDays;
+      if (daysUntilEvent < 3) {
+        _showNotification(
+          'Cancellation is not allowed within 3 days of the event.',
+          isError: true,
+        );
+        return;
+      }
+    }
+
     final confirmed = await _confirmCancelTicket();
     if (!confirmed) {
       return;
@@ -2350,6 +2396,24 @@ ${rows.join()}
   }
 
   Future<void> _deleteEvent(String eventId) async {
+    // Block deletion if any tickets have already been sold for this event.
+    try {
+      final ticketSnapshot =
+          await _ticketsRef
+              .where('EventId', isEqualTo: eventId)
+              .limit(1)
+              .get();
+      if (ticketSnapshot.docs.isNotEmpty) {
+        _showNotification(
+          'Cannot delete: tickets have already been sold for this event.',
+          isError: true,
+        );
+        return;
+      }
+    } catch (_) {
+      // If the check fails, fall through and let the confirmation dialog proceed.
+    }
+
     final confirmed = await _confirmDeleteEvent();
     if (!confirmed) {
       return;
@@ -2420,7 +2484,7 @@ ${rows.join()}
       await _organizersRef.doc(_currentUserId).set({
         'id': _currentUserId,
         'name': name,
-        'email': _auth.currentUser?.email,
+        'email': _secondaryAuth?.currentUser?.email ?? _auth.currentUser?.email,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -2605,6 +2669,18 @@ ${rows.join()}
               : 0);
     }
     if (ticketTotal != null) {
+      // When editing, prevent reducing the ticket count if any have been sold.
+      if (isEditing && ticketsSold > 0) {
+        final previousTotal = _editingEventTicketTotal;
+        if (previousTotal != null && ticketTotal < previousTotal) {
+          _showNotification(
+            '$ticketsSold ticket(s) already sold — you can only increase the total ticket count, not decrease it.',
+            isError: true,
+          );
+          setState(() => _isPublishing = false);
+          return;
+        }
+      }
       if (ticketsSold > ticketTotal) {
         _showNotification(
           'Total tickets cannot be less than tickets sold.',
@@ -2715,10 +2791,11 @@ ${rows.join()}
 
   Future<void> _selectDate() async {
     final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
     final picked = await showDatePicker(
       context: context,
-      initialDate: now,
-      firstDate: now,
+      initialDate: tomorrow,
+      firstDate: tomorrow,
       lastDate: DateTime(now.year + 3),
     );
     if (picked == null) {

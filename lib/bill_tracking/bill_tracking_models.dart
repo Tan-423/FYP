@@ -1,4 +1,4 @@
-enum BillTrackingView { dashboard, createBill, details, history, createGroup }
+enum BillTrackingView { dashboard, createBill, details, history, createGroup, editGroup }
 
 class BillUser {
   const BillUser({
@@ -29,10 +29,12 @@ class BillGroup {
     required this.ownerId,
     required this.name,
     required this.members,
+    this.description = '',
   });
   final String id;
   final String ownerId;
   final String name;
+  final String description;
   final List<BillUser> members;
 
   Map<String, dynamic> toMap() {
@@ -40,6 +42,7 @@ class BillGroup {
       'id': id,
       'ownerId': ownerId,
       'name': name,
+      'description': description,
       'members': members.map((m) => m.toMap()).toList(),
     };
   }
@@ -49,6 +52,7 @@ class BillGroup {
       id: map['id'] as String,
       ownerId: map['ownerId'] as String? ?? '',
       name: map['name'] as String,
+      description: map['description'] as String? ?? '',
       members:
           (map['members'] as List<dynamic>)
               .map((m) => BillUser.fromMap(m as Map<String, dynamic>))

@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'accommodation_models.dart';
 import 'accommodation_widgets.dart';
@@ -326,12 +329,14 @@ class OwnerAuthView extends StatelessWidget {
     required this.onBack,
     required this.onContinueAsGuest,
     required this.onOwnerLogin,
+    required this.userName,
     super.key,
   });
 
   final VoidCallback onBack;
   final VoidCallback onContinueAsGuest;
   final VoidCallback onOwnerLogin;
+  final String userName;
 
   @override
   Widget build(BuildContext context) {
@@ -361,7 +366,7 @@ class OwnerAuthView extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: onContinueAsGuest,
                 icon: const Icon(Icons.person),
-                label: const Text('Continue as Guest'),
+                label: Text('Continue as $userName'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF2563EB),
                   foregroundColor: Colors.white,
@@ -589,38 +594,6 @@ class ExploreView extends StatelessWidget {
                                       ),
                                     ),
                                     Positioned(
-                                      top: 12,
-                                      right: 12,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.9),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            const Icon(
-                                              Icons.star,
-                                              size: 14,
-                                              color: Colors.amber,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              item.rating.toStringAsFixed(1),
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    Positioned(
                                       bottom: 12,
                                       left: 12,
                                       child: Container(
@@ -716,7 +689,7 @@ class ExploreView extends StatelessWidget {
   }
 }
 
-class DetailView extends StatelessWidget {
+class DetailView extends StatefulWidget {
   const DetailView({
     required this.item,
     required this.onBack,
@@ -729,10 +702,36 @@ class DetailView extends StatelessWidget {
   final VoidCallback onBook;
 
   @override
+  State<DetailView> createState() => _DetailViewState();
+}
+
+class _DetailViewState extends State<DetailView> {
+  int _currentImageIndex = 0;
+  late final PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     if (item == null) {
       return const Center(child: Text('No accommodation selected.'));
     }
+
+    final displayImages =
+        item.images.isNotEmpty
+            ? item.images
+            : (item.image.isNotEmpty ? [item.image] : [fallbackAccommodationImageUrl]);
 
     return Stack(
       children: [
@@ -743,9 +742,17 @@ class DetailView extends StatelessWidget {
               children: [
                 AspectRatio(
                   aspectRatio: 16 / 10,
-                  child: AccommodationImage(
-                    imageUrl: item!.image,
-                    fit: BoxFit.cover,
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: displayImages.length,
+                    onPageChanged:
+                        (index) =>
+                            setState(() => _currentImageIndex = index),
+                    itemBuilder:
+                        (context, index) => AccommodationImage(
+                          imageUrl: displayImages[index],
+                          fit: BoxFit.cover,
+                        ),
                   ),
                 ),
                 Positioned(
@@ -755,10 +762,58 @@ class DetailView extends StatelessWidget {
                     backgroundColor: Colors.black54,
                     child: IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: onBack,
+                      onPressed: widget.onBack,
                     ),
                   ),
                 ),
+                if (displayImages.length > 1) ...[
+                  Positioned(
+                    bottom: 12,
+                    left: 0,
+                    right: 0,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        displayImages.length,
+                        (index) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: _currentImageIndex == index ? 10 : 6,
+                          height: _currentImageIndex == index ? 10 : 6,
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color:
+                                _currentImageIndex == index
+                                    ? Colors.white
+                                    : Colors.white60,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_currentImageIndex + 1} / ${displayImages.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             Padding(
@@ -773,7 +828,7 @@ class DetailView extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              item!.name,
+                              item.name,
                               style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
@@ -789,7 +844,7 @@ class DetailView extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  item!.location,
+                                  item.location,
                                   style: const TextStyle(color: Colors.black54),
                                 ),
                               ],
@@ -807,7 +862,7 @@ class DetailView extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          item!.type,
+                          item.type,
                           style: const TextStyle(
                             color: Color(0xFF0369A1),
                             fontWeight: FontWeight.bold,
@@ -823,7 +878,7 @@ class DetailView extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    item!.description,
+                    item.description,
                     style: const TextStyle(color: Colors.black54, height: 1.4),
                   ),
                   const SizedBox(height: 16),
@@ -836,7 +891,7 @@ class DetailView extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 8,
                     children:
-                        item!.facilities
+                        item.facilities
                             .map(
                               (fac) => Container(
                                 padding: const EdgeInsets.symmetric(
@@ -904,7 +959,7 @@ class DetailView extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          'RM${item!.price.toStringAsFixed(0)}',
+                          'RM${item.price.toStringAsFixed(0)}',
                           style: const TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
@@ -921,7 +976,7 @@ class DetailView extends StatelessWidget {
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: onBook,
+                  onPressed: widget.onBook,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     padding: const EdgeInsets.symmetric(
@@ -1862,20 +1917,63 @@ class TripsView extends StatelessWidget {
                       ],
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => onCancel(book.bookingId),
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      size: 16,
-                      color: Colors.redAccent,
-                    ),
-                    label: const Text(
-                      'Cancel Booking',
-                      style: TextStyle(
-                        color: Colors.redAccent,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  Builder(
+                    builder: (context) {
+                      return TextButton.icon(
+                        onPressed: () {
+                          final checkOutDate =
+                              DateTime.tryParse(book.checkOut) ??
+                              DateTime.tryParse(
+                                book.checkOut.replaceAll('/', '-'),
+                              );
+                          final today = DateTime.now();
+                          final todayOnly = DateTime(
+                            today.year,
+                            today.month,
+                            today.day,
+                          );
+                          final bool tooLate =
+                              checkOutDate != null &&
+                              checkOutDate.difference(todayOnly).inDays <= 3;
+                          if (tooLate) {
+                            showDialog<void>(
+                              context: context,
+                              builder:
+                                  (dialogContext) => AlertDialog(
+                                    title: const Text('Cannot Cancel Booking'),
+                                    content: Text(
+                                      'Cancellation is not allowed since your check-out date (${book.checkOut}) is less than 3 days away. ',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed:
+                                            () =>
+                                                Navigator.of(
+                                                  dialogContext,
+                                                ).pop(),
+                                        child: const Text('OK'),
+                                      ),
+                                    ],
+                                  ),
+                            );
+                          } else {
+                            onCancel(book.bookingId);
+                          }
+                        },
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          size: 16,
+                          color: Colors.redAccent,
+                        ),
+                        label: const Text(
+                          'Cancel Booking',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -2385,6 +2483,9 @@ class PublishFormViewState extends State<PublishFormView> {
   final _suiteCapController = TextEditingController();
   final _extraBedFeeController = TextEditingController();
   String _type = 'Luxury';
+  final _imagePicker = ImagePicker();
+  List<XFile> _pickedImages = [];
+  List<String> _existingImageUrls = [];
 
   @override
   void initState() {
@@ -2408,6 +2509,7 @@ class PublishFormViewState extends State<PublishFormView> {
           (item.roomCapacities['Deluxe Room'] ?? 3).toString();
       _suiteCapController.text = (item.roomCapacities['Suite'] ?? 4).toString();
       _extraBedFeeController.text = item.extraBedFee.toStringAsFixed(0);
+      _existingImageUrls = List<String>.from(item.images);
     } else {
       _standardCapController.text = '2';
       _deluxeCapController.text = '3';
@@ -2432,6 +2534,20 @@ class PublishFormViewState extends State<PublishFormView> {
     super.dispose();
   }
 
+  Future<void> _pickImages() async {
+    final picked = await _imagePicker.pickMultiImage(imageQuality: 80);
+    if (picked.isEmpty) return;
+    setState(() => _pickedImages = [..._pickedImages, ...picked]);
+  }
+
+  void _removeExistingImage(int index) {
+    setState(() => _existingImageUrls.removeAt(index));
+  }
+
+  void _removePickedImage(int index) {
+    setState(() => _pickedImages.removeAt(index));
+  }
+
   void _submit() {
     // Validate property name
     final name = _nameController.text.trim();
@@ -2453,9 +2569,9 @@ class PublishFormViewState extends State<PublishFormView> {
     // Validate location
     final location = _locationController.text.trim();
     if (location.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter location.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter location.')));
       return;
     }
 
@@ -2470,9 +2586,9 @@ class PublishFormViewState extends State<PublishFormView> {
     // Validate price
     final priceText = _priceController.text.trim();
     if (priceText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter price.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter price.')));
       return;
     }
 
@@ -2487,7 +2603,9 @@ class PublishFormViewState extends State<PublishFormView> {
     final price = double.tryParse(priceText) ?? 0;
     if (price <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid price greater than 0.')),
+        const SnackBar(
+          content: Text('Please enter a valid price greater than 0.'),
+        ),
       );
       return;
     }
@@ -2513,7 +2631,9 @@ class PublishFormViewState extends State<PublishFormView> {
     final facilitiesText = _facilitiesController.text.trim();
     if (facilitiesText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter facilities (e.g., WiFi, Pool, Gym).')),
+        const SnackBar(
+          content: Text('Please enter facilities (e.g., WiFi, Pool, Gym).'),
+        ),
       );
       return;
     }
@@ -2524,28 +2644,37 @@ class PublishFormViewState extends State<PublishFormView> {
             .map((e) => e.trim())
             .where((e) => e.isNotEmpty)
             .toList();
-    
+
     // Validate room counts: only numbers allowed
     final standardRoomText = _standardRoomController.text.trim();
-    if (standardRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(standardRoomText)) {
+    if (standardRoomText.isNotEmpty &&
+        !RegExp(r'^[0-9]+$').hasMatch(standardRoomText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Standard room quantity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Standard room quantity can only contain numbers.'),
+        ),
       );
       return;
     }
 
     final deluxeRoomText = _deluxeRoomController.text.trim();
-    if (deluxeRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(deluxeRoomText)) {
+    if (deluxeRoomText.isNotEmpty &&
+        !RegExp(r'^[0-9]+$').hasMatch(deluxeRoomText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Deluxe room quantity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Deluxe room quantity can only contain numbers.'),
+        ),
       );
       return;
     }
 
     final suiteRoomText = _suiteRoomController.text.trim();
-    if (suiteRoomText.isNotEmpty && !RegExp(r'^[0-9]+$').hasMatch(suiteRoomText)) {
+    if (suiteRoomText.isNotEmpty &&
+        !RegExp(r'^[0-9]+$').hasMatch(suiteRoomText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Suite quantity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Suite quantity can only contain numbers.'),
+        ),
       );
       return;
     }
@@ -2555,10 +2684,14 @@ class PublishFormViewState extends State<PublishFormView> {
     final suiteCount = int.tryParse(suiteRoomText) ?? 0;
 
     // Validate at least one room type has a value
-    if (standardRoomText.isEmpty && deluxeRoomText.isEmpty && suiteRoomText.isEmpty) {
+    if (standardRoomText.isEmpty &&
+        deluxeRoomText.isEmpty &&
+        suiteRoomText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter quantity for at least one room type (Standard, Deluxe, or Suite).'),
+          content: Text(
+            'Please enter quantity for at least one room type (Standard, Deluxe, or Suite).',
+          ),
         ),
       );
       return;
@@ -2568,7 +2701,9 @@ class PublishFormViewState extends State<PublishFormView> {
     if (standardCount == 0 && deluxeCount == 0 && suiteCount == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please specify at least one room type with quantity greater than 0.'),
+          content: Text(
+            'Please specify at least one room type with quantity greater than 0.',
+          ),
         ),
       );
       return;
@@ -2585,7 +2720,9 @@ class PublishFormViewState extends State<PublishFormView> {
 
     if (!RegExp(r'^[0-9]+$').hasMatch(standardCapText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Standard room capacity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Standard room capacity can only contain numbers.'),
+        ),
       );
       return;
     }
@@ -2600,7 +2737,9 @@ class PublishFormViewState extends State<PublishFormView> {
 
     if (!RegExp(r'^[0-9]+$').hasMatch(deluxeCapText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Deluxe room capacity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Deluxe room capacity can only contain numbers.'),
+        ),
       );
       return;
     }
@@ -2615,7 +2754,9 @@ class PublishFormViewState extends State<PublishFormView> {
 
     if (!RegExp(r'^[0-9]+$').hasMatch(suiteCapText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Suite capacity can only contain numbers.')),
+        const SnackBar(
+          content: Text('Suite capacity can only contain numbers.'),
+        ),
       );
       return;
     }
@@ -2645,24 +2786,25 @@ class PublishFormViewState extends State<PublishFormView> {
 
     if (suiteCount > 0 && suiteCap <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Suite capacity must be greater than 0.'),
-        ),
+        const SnackBar(content: Text('Suite capacity must be greater than 0.')),
       );
       return;
     }
 
     // Validate extra bed fee: only numbers allowed
     final extraBedFeeText = _extraBedFeeController.text.trim();
-    if (extraBedFeeText.isNotEmpty && !RegExp(r'^[0-9.]+$').hasMatch(extraBedFeeText)) {
+    if (extraBedFeeText.isNotEmpty &&
+        !RegExp(r'^[0-9.]+$').hasMatch(extraBedFeeText)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Extra bed fee can only contain numbers.')),
+        const SnackBar(
+          content: Text('Extra bed fee can only contain numbers.'),
+        ),
       );
       return;
     }
 
     final extraBedFee = double.tryParse(extraBedFeeText) ?? 0;
-    
+
     final roomTypes = <String, int>{
       if (standardCount > 0) 'Standard Room': standardCount,
       if (deluxeCount > 0) 'Deluxe Room': deluxeCount,
@@ -2684,6 +2826,105 @@ class PublishFormViewState extends State<PublishFormView> {
         roomTypes: roomTypes,
         roomCapacities: roomCapacities,
         extraBedFee: extraBedFee,
+        newImagePaths: _pickedImages.map((f) => f.path).toList(),
+        existingImageUrls: List<String>.from(_existingImageUrls),
+      ),
+    );
+  }
+
+  Widget _buildNetworkImageThumb(int index, String url) {
+    return Stack(
+      children: [
+        Container(
+          width: 90,
+          height: 90,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: const Color(0xFFF3F4F6),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder:
+                (_, __, ___) => const Icon(Icons.broken_image, color: Colors.black26),
+          ),
+        ),
+        Positioned(
+          top: 2,
+          right: 10,
+          child: GestureDetector(
+            onTap: () => _removeExistingImage(index),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, size: 12, color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFileImageThumb(int index, XFile file) {
+    return Stack(
+      children: [
+        Container(
+          width: 90,
+          height: 90,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: const Color(0xFFF3F4F6),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.file(File(file.path), fit: BoxFit.cover),
+        ),
+        Positioned(
+          top: 2,
+          right: 10,
+          child: GestureDetector(
+            onTap: () => _removePickedImage(index),
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                color: Colors.black54,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close, size: 12, color: Colors.white),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAddImageButton() {
+    return GestureDetector(
+      onTap: _pickImages,
+      child: Container(
+        width: 90,
+        height: 90,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFFF3F4F6),
+          border: Border.all(color: const Color(0xFFD1D5DB), width: 1.5),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF2563EB), size: 26),
+            SizedBox(height: 4),
+            Text(
+              'Add Photo',
+              style: TextStyle(fontSize: 10, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2913,6 +3154,46 @@ class PublishFormViewState extends State<PublishFormView> {
               border: InputBorder.none,
             ),
           ),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            const Text(
+              'PROPERTY PHOTOS',
+              style: TextStyle(
+                fontSize: 10,
+                color: Colors.black45,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.1,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '(${_existingImageUrls.length + _pickedImages.length} added)',
+              style: const TextStyle(fontSize: 10, color: Colors.black38),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 100,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              ..._existingImageUrls.asMap().entries.map(
+                (entry) => _buildNetworkImageThumb(entry.key, entry.value),
+              ),
+              ..._pickedImages.asMap().entries.map(
+                (entry) => _buildFileImageThumb(entry.key, entry.value),
+              ),
+              _buildAddImageButton(),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Add photos to help guests know what to expect.',
+          style: TextStyle(color: Colors.black45, fontSize: 11),
         ),
         const SizedBox(height: 14),
         ElevatedButton(

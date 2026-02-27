@@ -169,6 +169,50 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
     }
   }
 
+  Future<void> _updateGroup(BillGroup group) async {
+    try {
+      await _firebaseService.updateGroup(group);
+      setState(() => _view = BillTrackingView.dashboard);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Group updated successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update group: $e')));
+      }
+    }
+  }
+
+  Future<void> _deleteGroup() async {
+    if (_activeGroup == null) return;
+    final groupId = _activeGroup!.id;
+    try {
+      await _firebaseService.deleteGroup(groupId);
+      // Switch to another group if one exists, otherwise show empty state
+      final remaining = _groups.where((g) => g.id != groupId).toList();
+      setState(() {
+        _activeGroupId = remaining.isNotEmpty ? remaining.first.id : null;
+        _view = BillTrackingView.dashboard;
+      });
+      if (_activeGroupId != null) _loadBillsForActiveGroup();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Group deleted.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete group: $e')));
+      }
+    }
+  }
+
   Future<void> _createBill(BillModel bill) async {
     try {
       await _firebaseService.createBill(bill);
@@ -363,6 +407,8 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
           },
           onCreateGroup:
               () => setState(() => _view = BillTrackingView.createGroup),
+          onEditGroup:
+              () => setState(() => _view = BillTrackingView.editGroup),
           onNewBill: () => setState(() => _view = BillTrackingView.createBill),
           onSettleUp: () async {
             await _settleUpAllBills();
@@ -379,6 +425,18 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
         return BillCreateGroup(
           ownerId: _currentUserId,
           onSave: _createGroup,
+          onCancel: () => setState(() => _view = BillTrackingView.dashboard),
+        );
+      case BillTrackingView.editGroup:
+        if (_activeGroup == null) {
+          return const Center(child: Text('No group selected'));
+        }
+        return BillCreateGroup(
+          ownerId: _currentUserId,
+          initialGroup: _activeGroup,
+          existingBills: _activeBills,
+          onSave: _updateGroup,
+          onDeleteGroup: _deleteGroup,
           onCancel: () => setState(() => _view = BillTrackingView.dashboard),
         );
       case BillTrackingView.history:

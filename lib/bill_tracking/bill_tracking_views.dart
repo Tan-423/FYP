@@ -16,6 +16,7 @@ class BillDashboard extends StatelessWidget {
     required this.bills,
     required this.onSwitchGroup,
     required this.onCreateGroup,
+    required this.onEditGroup,
     required this.onNewBill,
     required this.onSettleUp,
     required this.onViewBill,
@@ -27,6 +28,7 @@ class BillDashboard extends StatelessWidget {
   final List<BillModel> bills;
   final ValueChanged<String> onSwitchGroup;
   final VoidCallback onCreateGroup;
+  final VoidCallback onEditGroup;
   final VoidCallback onNewBill;
   final VoidCallback onSettleUp;
   final ValueChanged<BillModel> onViewBill;
@@ -61,11 +63,37 @@ class BillDashboard extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       children: [
-        BillGroupSelector(
-          group: group,
-          groups: groups,
-          onSwitchGroup: onSwitchGroup,
-          onCreateGroup: onCreateGroup,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: BillGroupSelector(
+                group: group,
+                groups: groups,
+                onSwitchGroup: onSwitchGroup,
+                onCreateGroup: onCreateGroup,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'Edit Group',
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: onEditGroup,
+                  child: const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: Icon(
+                      Icons.edit_rounded,
+                      color: Color(0xFF2563EB),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 16),
         BillSummaryCard(
@@ -215,12 +243,23 @@ class BillCreateGroup extends StatefulWidget {
     required this.ownerId,
     required this.onSave,
     required this.onCancel,
+    this.initialGroup,
+    this.existingBills = const [],
+    this.onDeleteGroup,
     super.key,
   });
 
   final String ownerId;
   final ValueChanged<BillGroup> onSave;
   final VoidCallback onCancel;
+  /// When provided the form runs in edit mode, pre-filled with existing data.
+  final BillGroup? initialGroup;
+  /// Bills that already exist in this group — used to guard member deletion.
+  final List<BillModel> existingBills;
+  /// Called when the user confirms group deletion (edit mode only).
+  final VoidCallback? onDeleteGroup;
+
+  bool get isEditing => initialGroup != null;
 
   @override
   State<BillCreateGroup> createState() => _BillCreateGroupState();
@@ -228,8 +267,20 @@ class BillCreateGroup extends StatefulWidget {
 
 class _BillCreateGroupState extends State<BillCreateGroup> {
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _memberController = TextEditingController();
   final List<BillUser> _members = [];
+
+  @override
+  void initState() {
+    super.initState();
+    final g = widget.initialGroup;
+    if (g != null) {
+      _nameController.text = g.name;
+      _descriptionController.text = g.description;
+      _members.addAll(g.members);
+    }
+  }
 
   void _addMember() {
     if (_memberController.text.trim().isEmpty) return;
@@ -257,7 +308,28 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
     });
   }
 
+  bool _isMemberInBills(BillUser user) {
+    for (final bill in widget.existingBills) {
+      if (bill.payerId == user.id) return true;
+      for (final item in bill.items) {
+        if (item.assignedTo.contains(user.id)) return true;
+      }
+    }
+    return false;
+  }
+
   void _removeMember(BillUser user) {
+    if (_isMemberInBills(user)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${user.name} cannot be removed — they are assigned to one or more bills.',
+          ),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      return;
+    }
     setState(() => _members.remove(user));
   }
 
@@ -267,13 +339,17 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
       children: [
         Text(
-          'New Group',
+          widget.isEditing ? 'Edit Group' : 'New Group',
           style: Theme.of(
             context,
           ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 4),
-        const Text('Create a group to split bills with.'),
+        Text(
+          widget.isEditing
+              ? 'Update the group name, remark or members.'
+              : 'Create a group to split bills with.',
+        ),
         const SizedBox(height: 16),
         TextField(
           controller: _nameController,
@@ -285,6 +361,22 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
               borderRadius: BorderRadius.circular(16),
               borderSide: BorderSide.none,
             ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _descriptionController,
+          maxLines: 3,
+          decoration: InputDecoration(
+            labelText: 'Description / Remark (optional)',
+            hintText: 'e.g. Trip to Langkawi, weekend getaway...',
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+            alignLabelWithHint: true,
           ),
         ),
         const SizedBox(height: 16),
@@ -305,7 +397,12 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
                   backgroundImage: NetworkImage(member.avatarUrl),
                 ),
                 label: Text(member.name),
-                deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                deleteIcon: _isMemberInBills(member)
+                    ? const Tooltip(
+                        message: 'Has assigned bills',
+                        child: Icon(Icons.lock_rounded, size: 14),
+                      )
+                    : const Icon(Icons.close_rounded, size: 16),
                 onDeleted: () => _removeMember(member),
               ),
           ],
@@ -365,19 +462,88 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
                   }
                   widget.onSave(
                     BillGroup(
-                      id: DateTime.now().microsecondsSinceEpoch.toString(),
+                      id: widget.initialGroup?.id ??
+                          DateTime.now().microsecondsSinceEpoch.toString(),
                       ownerId: widget.ownerId,
                       name: name,
+                      description: _descriptionController.text.trim(),
                       members: List.of(_members),
                     ),
                   );
                 },
-                child: const Text('Create Group'),
+                child: Text(widget.isEditing ? 'Save Changes' : 'Create Group'),
               ),
             ),
           ],
         ),
+        if (widget.isEditing && widget.onDeleteGroup != null) ...[
+          const SizedBox(height: 12),
+          _DeleteGroupButton(
+            hasBills: widget.existingBills.isNotEmpty,
+            groupName: widget.initialGroup!.name,
+            onConfirm: widget.onDeleteGroup!,
+          ),
+        ],
       ],
+    );
+  }
+}
+
+class _DeleteGroupButton extends StatelessWidget {
+  const _DeleteGroupButton({
+    required this.hasBills,
+    required this.groupName,
+    required this.onConfirm,
+  });
+
+  final bool hasBills;
+  final String groupName;
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: hasBills ? 'Remove all bills before deleting this group' : '',
+      child: OutlinedButton.icon(
+        onPressed: hasBills
+            ? null
+            : () async {
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Delete Group'),
+                    content: Text(
+                      'Are you sure you want to delete "$groupName"? This action cannot be undone.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.red,
+                        ),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) onConfirm();
+              },
+        icon: const Icon(Icons.delete_outline_rounded),
+        label: Text(
+          hasBills ? 'Cannot Delete (has bills)' : 'Delete Group',
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: hasBills ? Colors.grey : Colors.red,
+          side: BorderSide(
+            color: hasBills ? Colors.grey.shade300 : Colors.red.shade300,
+          ),
+          minimumSize: const Size.fromHeight(48),
+        ),
+      ),
     );
   }
 }
@@ -1753,7 +1919,15 @@ class _BillDetailsViewState extends State<BillDetailsView> {
                     tooltip: 'Edit bill',
                   ),
                   IconButton(
-                    onPressed: _confirmDelete,
+                    onPressed: () {
+                      if (bill.status == BillStatus.settled) {
+                        _showSnackBar(
+                          'This bill has been settled and cannot be deleted.',
+                        );
+                        return;
+                      }
+                      _confirmDelete();
+                    },
                     icon: const Icon(Icons.delete_outline_rounded),
                     tooltip: 'Delete bill',
                   ),

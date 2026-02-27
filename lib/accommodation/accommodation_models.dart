@@ -25,6 +25,7 @@ class AccommodationItem {
     required this.description,
     required this.facilities,
     required this.image,
+    required this.images,
     required this.roomTypes,
     required this.roomCapacities,
     required this.extraBedFee,
@@ -41,6 +42,7 @@ class AccommodationItem {
   final String description;
   final List<String> facilities;
   final String image;
+  final List<String> images;
   final Map<String, int> roomTypes;
   final Map<String, int> roomCapacities;
   final double extraBedFee;
@@ -64,6 +66,12 @@ class AccommodationItem {
               ? facilitiesRaw.map((value) => value.toString()).toList()
               : const [],
       image: (data['image'] as String?)?.trim() ?? '',
+      images:
+          (data['images'] as List?)
+              ?.map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
       roomTypes:
           roomTypesRaw is Map
               ? roomTypesRaw.map(
@@ -200,6 +208,8 @@ class NewPropertyForm {
     required this.roomTypes,
     required this.roomCapacities,
     required this.extraBedFee,
+    required this.newImagePaths,
+    required this.existingImageUrls,
   });
 
   final String name;
@@ -211,6 +221,8 @@ class NewPropertyForm {
   final Map<String, int> roomTypes;
   final Map<String, int> roomCapacities;
   final double extraBedFee;
+  final List<String> newImagePaths;
+  final List<String> existingImageUrls;
 }
 
 class NotificationItem {
