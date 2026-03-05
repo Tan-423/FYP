@@ -1921,10 +1921,10 @@ class TripsView extends StatelessWidget {
                     builder: (context) {
                       return TextButton.icon(
                         onPressed: () {
-                          final checkOutDate =
-                              DateTime.tryParse(book.checkOut) ??
+                          final checkInDate =
+                              DateTime.tryParse(book.checkIn) ??
                               DateTime.tryParse(
-                                book.checkOut.replaceAll('/', '-'),
+                                book.checkIn.replaceAll('/', '-'),
                               );
                           final today = DateTime.now();
                           final todayOnly = DateTime(
@@ -1933,8 +1933,8 @@ class TripsView extends StatelessWidget {
                             today.day,
                           );
                           final bool tooLate =
-                              checkOutDate != null &&
-                              checkOutDate.difference(todayOnly).inDays <= 3;
+                              checkInDate != null &&
+                              checkInDate.difference(todayOnly).inDays <= 3;
                           if (tooLate) {
                             showDialog<void>(
                               context: context,
@@ -1942,7 +1942,7 @@ class TripsView extends StatelessWidget {
                                   (dialogContext) => AlertDialog(
                                     title: const Text('Cannot Cancel Booking'),
                                     content: Text(
-                                      'Cancellation is not allowed since your check-out date (${book.checkOut}) is less than 3 days away. ',
+                                      'Cancellation is not allowed since your check-in date (${book.checkIn}) is less than 3 days away. ',
                                     ),
                                     actions: [
                                       TextButton(
