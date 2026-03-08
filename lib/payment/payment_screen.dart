@@ -1,7 +1,18 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:convert';
+import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:webview_flutter/webview_flutter.dart';
+
+part 'payment_models.dart';
+part 'payment_views.dart';
 
 class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key});
@@ -11,77 +22,291 @@ class PaymentScreen extends StatefulWidget {
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
+  static const String _emailJsServiceId = 'service_duet1ff';
+  static const String _emailJsTemplateId = 'template_ifgo794';
+  static const String _emailJsPublicKey = 'IUJGANEaedb8T2n1N';
   String _activeTab = 'payment';
   String _paymentStep = 'selection';
   BookingItem? _selectedBooking;
+  String? _paymentApprovalUrl;
+  String? _paymentOrderId;
+  String? _activePaymentRecordId;
+  String? _activePaymentSource;
+  bool _isCreatingPayment = false;
 
-  final List<BookingItem> _pendingBookings = [
-    BookingItem(
-      id: 'B001',
-      type: 'Accommodation',
-      name: 'Grand Hyatt Kuala Lumpur',
-      date: '2026-01-25',
-      amount: 450.00,
-      currency: 'MYR',
-    ),
-    BookingItem(
-      id: 'E001',
-      type: 'Event',
-      name: 'Langkawi Sky Bridge Tour',
-      date: '2026-01-28',
-      amount: 85.00,
-      currency: 'MYR',
-    ),
+  final String _paypalBaseUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net';
+  final String _paypalReturnUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net/paypalSuccess';
+  final String _paypalCancelUrl =
+      'https://us-central1-fyp-project-7199d.cloudfunctions.net/paypalCancel';
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  late final CollectionReference<Map<String, dynamic>> _eventPaymentsRef =
+      _firestore.collection('EventPayment');
+  late final CollectionReference<Map<String, dynamic>>
+  _accommodationPaymentsRef = _firestore.collection('AccommodationPayments');
+  static const List<String> _pendingStatuses = [
+    'FAILED',
+    'CREATED',
+    'RETRYING',
+    'CANCELLED',
   ];
 
-  final List<TransactionItem> _history = [
-    TransactionItem(
-      id: 'TXN882',
-      name: 'Sunway Lagoon Ticket',
-      amount: 120.00,
-      date: '2025-12-15',
-      status: 'Success',
-      method: 'Visa',
-    ),
-    TransactionItem(
-      id: 'TXN881',
-      name: 'Traders Hotel Stay',
-      amount: 350.00,
-      date: '2025-12-10',
-      status: 'Success',
-      method: 'PayPal',
-    ),
-    TransactionItem(
-      id: 'TXN880',
-      name: 'KL Tower Entrance',
-      amount: 45.00,
-      date: '2025-12-01',
-      status: 'Success',
-      method: 'MasterCard',
-    ),
-  ];
+  double _totalSpentFor(List<TransactionItem> history) =>
+      history.fold(0, (sum, item) => sum + item.amount);
 
-  double get _totalSpent =>
-      _history.fold(0, (sum, item) => sum + item.amount);
+  Stream<List<BookingItem>> _pendingEventPaymentsStream() {
+    final userId = _auth.currentUser?.uid ?? 'traveler';
+    return _eventPaymentsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', whereIn: _pendingStatuses)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) => BookingItem.fromEventPayment(doc.data(), id: doc.id),
+              )
+              .toList();
+        });
+  }
 
-  Future<void> _handleProcessPayment(BookingItem booking) async {
+  Stream<List<BookingItem>> _pendingAccommodationPaymentsStream() {
+    final userId = _auth.currentUser?.uid ?? 'guest';
+    return _accommodationPaymentsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', whereIn: _pendingStatuses)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) => BookingItem.fromAccommodationPayment(
+                  doc.data(),
+                  id: doc.id,
+                ),
+              )
+              .toList();
+        });
+  }
+
+  Stream<List<TransactionItem>> _eventHistoryStream() {
+    final userId = _auth.currentUser?.uid ?? 'traveler';
+    return _eventPaymentsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', isEqualTo: 'CAPTURED')
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) =>
+                    TransactionItem.fromEventPayment(doc.data(), id: doc.id),
+              )
+              .toList();
+        });
+  }
+
+  Stream<List<TransactionItem>> _accommodationHistoryStream() {
+    final userId = _auth.currentUser?.uid ?? 'guest';
+    return _accommodationPaymentsRef
+        .where('UserId', isEqualTo: userId)
+        .where('Status', isEqualTo: 'CAPTURED')
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs
+              .map(
+                (doc) => TransactionItem.fromAccommodationPayment(
+                  doc.data(),
+                  id: doc.id,
+                ),
+              )
+              .toList();
+        });
+  }
+
+  Future<void> _handleContinueCheckout(BookingItem booking) async {
+    await _startRetryCheckout(booking);
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  Future<void> _startRetryCheckout(BookingItem booking) async {
+    if (_isCreatingPayment) {
+      return;
+    }
     setState(() {
       _selectedBooking = booking;
       _paymentStep = 'processing';
+      _isCreatingPayment = true;
     });
+    final ref =
+        booking.source == 'event'
+            ? _eventPaymentsRef.doc(booking.id)
+            : _accommodationPaymentsRef.doc(booking.id);
+    try {
+      final doc = await ref.get();
+      if (!doc.exists) {
+        throw Exception('Payment record missing');
+      }
+      final data = doc.data() ?? {};
+      final amount = _asDouble(data['Amount']);
+      final currency = (data['Currency'] ?? 'MYR').toString();
+      final eventId =
+          (data['EventId'] ?? data['AccommodationId'] ?? '').toString();
+      if (eventId.trim().isEmpty) {
+        throw Exception('Missing reference ID');
+      }
+      await ref.set({
+        'PaymentId': booking.id,
+        'Status': 'RETRYING',
+        'UpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      final response = await http.post(
+        Uri.parse('$_paypalBaseUrl/createPayPalOrder'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'amount': amount.toStringAsFixed(2),
+          'currency': currency,
+          'return_url': _paypalReturnUrl,
+          'cancel_url': _paypalCancelUrl,
+          'event_id': eventId,
+        }),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Order create failed');
+      }
+      final payload = jsonDecode(response.body) as Map<String, dynamic>;
+      final approvalUrl = payload['approvalUrl']?.toString();
+      final orderId = payload['orderId']?.toString();
+      if (approvalUrl == null || orderId == null) {
+        throw Exception('Missing approval data');
+      }
+      await ref.set({
+        'PaymentId': booking.id,
+        'PayPalOrderId': orderId,
+        'Status': 'CREATED',
+        'UpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (!mounted) return;
+      setState(() {
+        _paymentApprovalUrl = approvalUrl;
+        _paymentOrderId = orderId;
+        _activePaymentRecordId = booking.id;
+        _activePaymentSource = booking.source;
+        _paymentStep = 'paypal';
+        _isCreatingPayment = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _paymentStep = 'selection';
+        _isCreatingPayment = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start PayPal checkout.')),
+      );
+    }
+  }
 
-    await Future<void>.delayed(const Duration(milliseconds: 2500));
-    final newTxn = TransactionItem(
-      id: 'TXN${Random().nextInt(1000)}',
-      name: booking.name,
-      amount: booking.amount,
-      date: DateTime.now().toIso8601String().split('T').first,
-      status: 'Success',
-      method: 'PayPal',
-    );
+  Future<void> _capturePayPalOrder() async {
+    if (_paymentOrderId == null || _activePaymentRecordId == null) {
+      return;
+    }
+    setState(() => _paymentStep = 'processing');
+    final recordId = _activePaymentRecordId!;
+    final ref =
+        _activePaymentSource == 'event'
+            ? _eventPaymentsRef.doc(recordId)
+            : _accommodationPaymentsRef.doc(recordId);
+    try {
+      final response = await http.post(
+        Uri.parse('$_paypalBaseUrl/capturePayPalOrder'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'orderId': _paymentOrderId}),
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Capture failed');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final payerEmail = data['data']?['payer']?['email_address']?.toString();
+      await ref.set({
+        'PaymentId': recordId,
+        'PayPalOrderId': _paymentOrderId,
+        'Status': 'CAPTURED',
+        'CapturedAt': FieldValue.serverTimestamp(),
+        'PayerEmail': payerEmail,
+      }, SetOptions(merge: true));
+      final booking = _selectedBooking;
+      if (booking != null) {
+        try {
+          await _sendReceiptEmail(
+            booking: booking,
+            paymentId: recordId,
+            amount: booking.amount,
+            currency: booking.currency,
+            payerEmail: payerEmail,
+          );
+        } catch (_) {
+          // Ignore email failures to avoid blocking checkout.
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _paymentStep = 'success';
+        _paymentApprovalUrl = null;
+        _paymentOrderId = null;
+        _activePaymentRecordId = null;
+        _activePaymentSource = null;
+      });
+    } catch (_) {
+      await ref.set({
+        'PaymentId': recordId,
+        'PayPalOrderId': _paymentOrderId,
+        'Status': 'FAILED',
+        'UpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (!mounted) return;
+      setState(() {
+        _paymentStep = 'selection';
+        _paymentApprovalUrl = null;
+        _paymentOrderId = null;
+        _activePaymentRecordId = null;
+        _activePaymentSource = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Payment not completed. Please try again.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _cancelPayPalCheckout() async {
+    final recordId = _activePaymentRecordId;
+    if (recordId != null) {
+      final ref =
+          _activePaymentSource == 'event'
+              ? _eventPaymentsRef.doc(recordId)
+              : _accommodationPaymentsRef.doc(recordId);
+      await ref.set({
+        'PaymentId': recordId,
+        'PayPalOrderId': _paymentOrderId,
+        'Status': 'CANCELLED',
+        'UpdatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+    if (!mounted) return;
     setState(() {
-      _history.insert(0, newTxn);
-      _paymentStep = 'success';
+      _paymentStep = 'selection';
+      _paymentApprovalUrl = null;
+      _paymentOrderId = null;
+      _activePaymentRecordId = null;
+      _activePaymentSource = null;
     });
   }
 
@@ -93,9 +318,386 @@ class _PaymentScreenState extends State<PaymentScreen> {
     });
   }
 
+  String _currentUserName() {
+    final user = _auth.currentUser;
+    final display = user?.displayName?.trim();
+    if (display != null && display.isNotEmpty) {
+      return display;
+    }
+    final email = user?.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      return email.split('@').first;
+    }
+    return 'Traveler';
+  }
+
+  String _escapeHtml(String value) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+  }
+
+  Future<void> _sendEmailViaEmailJs({
+    required String to,
+    required String subject,
+    required String html,
+    String? text,
+  }) async {
+    final trimmedTo = to.trim();
+    if (trimmedTo.isEmpty) {
+      return;
+    }
+    final response = await http.post(
+      Uri.parse('https://api.emailjs.com/api/v1.0/email/send'),
+      headers: {
+        'origin': 'http://localhost',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'service_id': _emailJsServiceId,
+        'template_id': _emailJsTemplateId,
+        'user_id': _emailJsPublicKey,
+        'template_params': {
+          'to_email': trimmedTo,
+          'subject': subject,
+          'message_html': html,
+          if (text != null) 'message_text': text,
+        },
+      }),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('EmailJS send failed');
+    }
+  }
+
+  Future<void> _sendReceiptEmail({
+    required BookingItem booking,
+    required String paymentId,
+    required double amount,
+    required String currency,
+    String? payerEmail,
+  }) async {
+    final email = (_auth.currentUser?.email ?? payerEmail ?? '').trim();
+    if (email.isEmpty) {
+      return;
+    }
+    final receiptType =
+        booking.source == 'accommodation' ? 'Accommodation' : 'Event';
+    final serviceName = booking.name.trim().isEmpty ? '-' : booking.name.trim();
+    final paymentDate = booking.date.trim();
+    final eventDate = (booking.eventDate ?? '').trim();
+    final eventLocation = (booking.eventLocation ?? '').trim();
+    final checkIn = (booking.checkIn ?? '').trim();
+    final checkOut = (booking.checkOut ?? '').trim();
+    final stayLocation = (booking.accommodationLocation ?? '').trim();
+    final roomType = (booking.roomType ?? '').trim();
+    final roomCount = booking.roomCount;
+    final peopleCount = booking.peopleCount ?? 0;
+    final childCount = booking.childCount ?? 0;
+    final infantCount = booking.infantCount ?? 0;
+    final totalGuests = peopleCount + childCount + infantCount;
+    final nights = booking.nights;
+    final rows = <String>[
+      '<tr><td>Service</td><td>${_escapeHtml(serviceName)}</td></tr>',
+      if (receiptType == 'Event' && eventDate.isNotEmpty)
+        '<tr><td>Event Date</td><td>${_escapeHtml(eventDate)}</td></tr>',
+      if (receiptType == 'Event' && eventLocation.isNotEmpty)
+        '<tr><td>Event Location</td><td>${_escapeHtml(eventLocation)}</td></tr>',
+      if (receiptType == 'Accommodation' && stayLocation.isNotEmpty)
+        '<tr><td>Location</td><td>${_escapeHtml(stayLocation)}</td></tr>',
+      if (receiptType == 'Accommodation' && roomType.isNotEmpty)
+        '<tr><td>Room Type</td><td>${_escapeHtml(roomType)}</td></tr>',
+      if (receiptType == 'Accommodation' && roomCount != null)
+        '<tr><td>Rooms</td><td>$roomCount</td></tr>',
+      if (receiptType == 'Accommodation' && totalGuests > 0)
+        '<tr><td>Guests</td><td>$totalGuests</td></tr>',
+      if (receiptType == 'Accommodation' && checkIn.isNotEmpty)
+        '<tr><td>Check-in</td><td>${_escapeHtml(checkIn)}</td></tr>',
+      if (receiptType == 'Accommodation' && checkOut.isNotEmpty)
+        '<tr><td>Check-out</td><td>${_escapeHtml(checkOut)}</td></tr>',
+      if (receiptType == 'Accommodation' && nights != null)
+        '<tr><td>Nights</td><td>$nights</td></tr>',
+      '<tr><td>Payment ID</td><td>${_escapeHtml(paymentId)}</td></tr>',
+      if (paymentDate.isNotEmpty)
+        '<tr><td>Payment Date</td><td>${_escapeHtml(paymentDate)}</td></tr>',
+      '<tr><td>Total Paid</td><td>$currency ${amount.toStringAsFixed(2)}</td></tr>',
+    ];
+    final html = '''
+<h2>$receiptType Receipt</h2>
+<p>Thank you for your payment. Here are your receipt details:</p>
+<table cellpadding="6" cellspacing="0" border="1">
+${rows.join()}
+</table>
+''';
+    final text =
+        'Receipt for $receiptType: $serviceName. '
+        'Payment ID: $paymentId. Total: $currency ${amount.toStringAsFixed(2)}.';
+    await _sendEmailViaEmailJs(
+      to: email,
+      subject: '$receiptType Payment Receipt',
+      html: html,
+      text: text,
+    );
+  }
+
+  String _safeFileName(String value) {
+    final cleaned =
+        value
+            .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+            .replaceAll(RegExp(r'\s+'), '_')
+            .trim();
+    return cleaned.isEmpty ? 'receipt' : cleaned;
+  }
+
+  Future<Map<String, String>> _fetchEventInfo(String eventId) async {
+    if (eventId.trim().isEmpty) {
+      return const {'date': '', 'location': ''};
+    }
+    try {
+      final doc = await _firestore.collection('Event').doc(eventId).get();
+      final data = doc.data();
+      if (data == null) {
+        return const {'date': '', 'location': ''};
+      }
+      final date = BookingItem._dateStringFromValue(data['Date']);
+      final location = BookingItem._stringFrom(data['Location']);
+      return {'date': date, 'location': location};
+    } catch (_) {
+      return const {'date': '', 'location': ''};
+    }
+  }
+
+  Future<String> _fetchAccommodationLocation(String accommodationId) async {
+    if (accommodationId.trim().isEmpty) {
+      return '';
+    }
+    try {
+      final doc =
+          await _firestore
+              .collection('accommodations')
+              .doc(accommodationId)
+              .get();
+      final data = doc.data();
+      if (data == null) {
+        return '';
+      }
+      return BookingItem._stringFrom(data['location']);
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _downloadReceiptPdf({TransactionItem? historyItem}) async {
+    final booking = _selectedBooking;
+    final item = historyItem;
+    final receiptType =
+        (item?.source ?? booking?.source) == 'accommodation'
+            ? 'Accommodation'
+            : 'Event';
+    final recipient = _currentUserName();
+    final serviceName = item?.name ?? booking?.name ?? '-';
+    final paymentId = item?.id ?? booking?.id ?? '-';
+    final amount = item?.amount ?? booking?.amount ?? 0;
+    final paymentDate = (item?.date ?? booking?.date ?? '').trim();
+
+    final eventDate = (item?.eventDate ?? booking?.eventDate ?? '').trim();
+    final eventLocation =
+        (item?.eventLocation ?? booking?.eventLocation ?? '').trim();
+
+    final stayCheckIn = (item?.checkIn ?? booking?.checkIn ?? '').trim();
+    final stayCheckOut = (item?.checkOut ?? booking?.checkOut ?? '').trim();
+    final stayLocation =
+        (item?.accommodationLocation ?? booking?.accommodationLocation ?? '')
+            .trim();
+    final roomType = (item?.roomType ?? booking?.roomType ?? '').trim();
+    final roomCount = item?.roomCount ?? booking?.roomCount;
+    final peopleCount = item?.peopleCount ?? booking?.peopleCount ?? 0;
+    final childCount = item?.childCount ?? booking?.childCount ?? 0;
+    final infantCount = item?.infantCount ?? booking?.infantCount ?? 0;
+    final totalGuests = peopleCount + childCount + infantCount;
+    final nights = item?.nights ?? booking?.nights;
+
+    pw.Widget row(String label, String value) {
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 4),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(
+              flex: 2,
+              child: pw.Text(
+                label,
+                style: pw.TextStyle(
+                  color: PdfColor.fromHex('#64748B'),
+                  fontSize: 10,
+                ),
+              ),
+            ),
+            pw.Expanded(
+              flex: 3,
+              child: pw.Text(
+                value,
+                textAlign: pw.TextAlign.right,
+                style: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final doc = pw.Document();
+    doc.addPage(
+      pw.Page(
+        margin: const pw.EdgeInsets.all(24),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Receipt Details',
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                '$receiptType • Travel Payment Receipt',
+                style: pw.TextStyle(
+                  fontSize: 11,
+                  color: PdfColor.fromHex('#93C5FD'),
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 16),
+              row('Recipient', recipient),
+              row('Service', serviceName),
+              if (receiptType == 'Event')
+                row('Event Date', eventDate.isEmpty ? '-' : eventDate),
+              if (receiptType == 'Event')
+                row(
+                  'Event Location',
+                  eventLocation.isEmpty ? '-' : eventLocation,
+                ),
+              if (receiptType == 'Accommodation')
+                row('Location', stayLocation.isEmpty ? '-' : stayLocation),
+              if (receiptType == 'Accommodation')
+                row('Room Type', roomType.isEmpty ? '-' : roomType),
+              if (receiptType == 'Accommodation')
+                row('Rooms', roomCount == null ? '-' : '$roomCount'),
+              if (receiptType == 'Accommodation')
+                row('Guests', totalGuests == 0 ? '-' : '$totalGuests'),
+              if (receiptType == 'Accommodation')
+                row('Check-in', stayCheckIn.isEmpty ? '-' : stayCheckIn),
+              if (receiptType == 'Accommodation')
+                row('Check-out', stayCheckOut.isEmpty ? '-' : stayCheckOut),
+              if (receiptType == 'Accommodation')
+                row('Nights', nights == null ? '-' : '$nights'),
+              row('Payment ID', paymentId),
+              if (paymentDate.isNotEmpty) row('Payment Date', paymentDate),
+              pw.SizedBox(height: 16),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(16),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#2563EB'),
+                  borderRadius: pw.BorderRadius.circular(14),
+                ),
+                child: pw.Column(
+                  children: [
+                    pw.Text(
+                      'FINAL AMOUNT PAID',
+                      style: pw.TextStyle(
+                        fontSize: 9,
+                        letterSpacing: 1.6,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColor.fromHex('#DBEAFE'),
+                      ),
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Text(
+                      'RM ${amount.toStringAsFixed(2)}',
+                      style: pw.TextStyle(
+                        fontSize: 22,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    try {
+      final fileName = 'receipt_${_safeFileName(paymentId)}.pdf';
+      Directory? targetDir;
+      if (Platform.isAndroid) {
+        targetDir = Directory('/storage/emulated/0/Download');
+      } else {
+        targetDir = await getDownloadsDirectory();
+      }
+      targetDir ??= await getApplicationDocumentsDirectory();
+      if (!await targetDir.exists()) {
+        await targetDir.create(recursive: true);
+      }
+      final file = File('${targetDir.path}${Platform.pathSeparator}$fileName');
+      await file.writeAsBytes(await doc.save());
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Receipt saved in ${targetDir.path}')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to save receipt PDF.')),
+      );
+    }
+  }
+
   Future<void> _showReceiptDialog({TransactionItem? historyItem}) {
     final booking = _selectedBooking;
     final item = historyItem;
+    final receiptType =
+        (item?.source ?? booking?.source) == 'accommodation'
+            ? 'Accommodation'
+            : 'Event';
+    final eventDate = (item?.eventDate ?? booking?.eventDate ?? '').trim();
+    final eventLocation =
+        (item?.eventLocation ?? booking?.eventLocation ?? '').trim();
+    final eventId = (item?.eventId ?? booking?.eventId ?? '').trim();
+    final needsEventLookup =
+        receiptType == 'Event' &&
+        (eventDate.isEmpty || eventLocation.isEmpty) &&
+        eventId.isNotEmpty;
+    final stayCheckIn = (item?.checkIn ?? booking?.checkIn ?? '').trim();
+    final stayCheckOut = (item?.checkOut ?? booking?.checkOut ?? '').trim();
+    final stayLocation =
+        (item?.accommodationLocation ?? booking?.accommodationLocation ?? '')
+            .trim();
+    final accommodationId =
+        (item?.accommodationId ?? booking?.accommodationId ?? '').trim();
+    final needsAccommodationLookup =
+        receiptType == 'Accommodation' &&
+        stayLocation.isEmpty &&
+        accommodationId.isNotEmpty;
+    final roomType = (item?.roomType ?? booking?.roomType ?? '').trim();
+    final roomCount = item?.roomCount ?? booking?.roomCount;
+    final peopleCount = item?.peopleCount ?? booking?.peopleCount ?? 0;
+    final childCount = item?.childCount ?? booking?.childCount ?? 0;
+    final infantCount = item?.infantCount ?? booking?.infantCount ?? 0;
+    final totalGuests = peopleCount + childCount + infantCount;
+    final nights = item?.nights ?? booking?.nights;
 
     return showDialog<void>(
       context: context,
@@ -103,8 +705,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (context) {
         return Dialog(
           insetPadding: const EdgeInsets.all(16),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
             child: Column(
@@ -134,13 +737,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     color: const Color(0xFFEAF2FF),
                     borderRadius: BorderRadius.circular(22),
                   ),
-                  child: const Icon(Icons.credit_card_rounded,
-                      size: 36, color: Color(0xFF2563EB)),
+                  child: const Icon(
+                    Icons.credit_card_rounded,
+                    size: 36,
+                    color: Color(0xFF2563EB),
+                  ),
                 ),
                 const SizedBox(height: 12),
-                const Text(
-                  'WanderEase',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+                Text(
+                  receiptType,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 const Text(
@@ -153,14 +762,96 @@ class _PaymentScreenState extends State<PaymentScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                _ReceiptRow(
-                  label: 'Recipient:',
-                  value: 'Tan Lai Heng',
-                ),
+                _ReceiptRow(label: 'Recipient:', value: _currentUserName()),
                 _ReceiptRow(
                   label: 'Service:',
                   value: item?.name ?? booking?.name ?? '-',
                 ),
+                if (receiptType == 'Accommodation' && !needsAccommodationLookup)
+                  _ReceiptRow(
+                    label: 'Location:',
+                    value: stayLocation.isEmpty ? '-' : stayLocation,
+                  ),
+                if (receiptType == 'Accommodation' && needsAccommodationLookup)
+                  FutureBuilder<String>(
+                    future: _fetchAccommodationLocation(accommodationId),
+                    builder: (context, snapshot) {
+                      final resolvedLocation =
+                          snapshot.data?.trim().isNotEmpty == true
+                              ? snapshot.data!.trim()
+                              : stayLocation;
+                      return _ReceiptRow(
+                        label: 'Location:',
+                        value:
+                            resolvedLocation.isEmpty ? '-' : resolvedLocation,
+                      );
+                    },
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Room Type:',
+                    value: roomType.isEmpty ? '-' : roomType,
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Rooms:',
+                    value: roomCount == null ? '-' : '$roomCount',
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Guests:',
+                    value: totalGuests == 0 ? '-' : '$totalGuests',
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Check-in:',
+                    value: stayCheckIn.isEmpty ? '-' : stayCheckIn,
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Check-out:',
+                    value: stayCheckOut.isEmpty ? '-' : stayCheckOut,
+                  ),
+                if (receiptType == 'Accommodation')
+                  _ReceiptRow(
+                    label: 'Nights:',
+                    value: nights == null ? '-' : '$nights',
+                  ),
+                if (receiptType == 'Event' && !needsEventLookup)
+                  _ReceiptRow(
+                    label: 'Event Date:',
+                    value: eventDate.isEmpty ? '-' : eventDate,
+                  ),
+                if (receiptType == 'Event' && !needsEventLookup)
+                  _ReceiptRow(
+                    label: 'Event Location:',
+                    value: eventLocation.isEmpty ? '-' : eventLocation,
+                  ),
+                if (receiptType == 'Event' && needsEventLookup)
+                  FutureBuilder<Map<String, String>>(
+                    future: _fetchEventInfo(eventId),
+                    builder: (context, snapshot) {
+                      final fetched = snapshot.data;
+                      final resolvedDate = fetched?['date'] ?? eventDate;
+                      final resolvedLocation =
+                          fetched?['location'] ?? eventLocation;
+                      return Column(
+                        children: [
+                          _ReceiptRow(
+                            label: 'Event Date:',
+                            value: resolvedDate.isEmpty ? '-' : resolvedDate,
+                          ),
+                          _ReceiptRow(
+                            label: 'Event Location:',
+                            value:
+                                resolvedLocation.isEmpty
+                                    ? '-'
+                                    : resolvedLocation,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
                 _ReceiptRow(
                   label: 'Payment ID:',
                   value: item?.id ?? booking?.id ?? '-',
@@ -201,7 +892,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () async {
+                      await _downloadReceiptPdf(historyItem: item);
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0F172A),
                       foregroundColor: Colors.white,
@@ -253,13 +949,26 @@ class _PaymentScreenState extends State<PaymentScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: _BottomNav(),
+      bottomNavigationBar: null,
     );
   }
 
   Widget _buildBody() {
     if (_paymentStep == 'processing') {
       return _ProcessingView();
+    }
+    if (_paymentStep == 'paypal') {
+      final approvalUrl = _paymentApprovalUrl;
+      if (approvalUrl == null) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return _PayPalCheckoutView(
+        approvalUrl: approvalUrl,
+        returnUrl: _paypalReturnUrl,
+        cancelUrl: _paypalCancelUrl,
+        onApproved: _capturePayPalOrder,
+        onCancelled: _cancelPayPalCheckout,
+      );
     }
     if (_paymentStep == 'success') {
       return _SuccessView(
@@ -269,906 +978,97 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
     }
 
-    return _activeTab == 'payment'
-        ? _PaymentSelectionView(
-            bookings: _pendingBookings,
-            onPayNow: _handleProcessPayment,
-          )
-        : _HistoryView(
-            history: _history,
-            totalSpent: _totalSpent,
-            onViewReceipt: (item) => _showReceiptDialog(historyItem: item),
-          );
+    return _activeTab == 'payment' ? _buildPaymentTab() : _buildHistoryTab();
   }
-}
 
-class _Header extends StatelessWidget {
-  const _Header({required this.canGoBack, required this.onBack});
-
-  final bool canGoBack;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          if (canGoBack)
-            IconButton(
-              icon: const Icon(Icons.chevron_left_rounded,
-                  color: Color(0xFF2563EB), size: 28),
-              onPressed: onBack,
-            ),
-          const SizedBox(width: 6),
-          const Text(
-            'Payment',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF1E3A8A),
-            ),
-          ),
-        ],
-      ),
+  Widget _buildPaymentTab() {
+    return StreamBuilder<List<BookingItem>>(
+      stream: _pendingEventPaymentsStream(),
+      builder: (context, eventSnapshot) {
+        return StreamBuilder<List<BookingItem>>(
+          stream: _pendingAccommodationPaymentsStream(),
+          builder: (context, accommodationSnapshot) {
+            final isLoading =
+                (eventSnapshot.connectionState == ConnectionState.waiting ||
+                    accommodationSnapshot.connectionState ==
+                        ConnectionState.waiting) &&
+                eventSnapshot.data == null &&
+                accommodationSnapshot.data == null;
+            if (isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final bookings = <BookingItem>[
+              ...?eventSnapshot.data,
+              ...?accommodationSnapshot.data,
+            ];
+            bookings.sort((a, b) {
+              final aTime =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bTime =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bTime.compareTo(aTime);
+            });
+            final notice =
+                (eventSnapshot.hasError || accommodationSnapshot.hasError)
+                    ? 'Unable to load checkouts. Please try again.'
+                    : (eventSnapshot.data == null ||
+                        accommodationSnapshot.data == null)
+                    ? 'Fetching checkouts from server...'
+                    : null;
+            return _PaymentSelectionView(
+              bookings: bookings,
+              onPayNow: _handleContinueCheckout,
+              notice: notice,
+            );
+          },
+        );
+      },
     );
   }
-}
 
-class _TabBar extends StatelessWidget {
-  const _TabBar({required this.activeTab, required this.onTabChanged});
-
-  final String activeTab;
-  final ValueChanged<String> onTabChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _TabButton(
-          label: 'Checkout',
-          isActive: activeTab == 'payment',
-          onTap: () => onTabChanged('payment'),
-        ),
-        const SizedBox(width: 12),
-        _TabButton(
-          label: 'History',
-          isActive: activeTab == 'history',
-          onTap: () => onTabChanged('history'),
-        ),
-      ],
+  Widget _buildHistoryTab() {
+    return StreamBuilder<List<TransactionItem>>(
+      stream: _eventHistoryStream(),
+      builder: (context, eventSnapshot) {
+        return StreamBuilder<List<TransactionItem>>(
+          stream: _accommodationHistoryStream(),
+          builder: (context, accommodationSnapshot) {
+            final isLoading =
+                (eventSnapshot.connectionState == ConnectionState.waiting ||
+                    accommodationSnapshot.connectionState ==
+                        ConnectionState.waiting) &&
+                eventSnapshot.data == null &&
+                accommodationSnapshot.data == null;
+            if (isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final history = <TransactionItem>[
+              ...?eventSnapshot.data,
+              ...?accommodationSnapshot.data,
+            ];
+            history.sort((a, b) {
+              final aTime =
+                  a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bTime =
+                  b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bTime.compareTo(aTime);
+            });
+            final notice =
+                (eventSnapshot.hasError || accommodationSnapshot.hasError)
+                    ? 'Unable to load history. Please try again.'
+                    : (eventSnapshot.data == null ||
+                        accommodationSnapshot.data == null)
+                    ? 'Fetching history from server...'
+                    : null;
+            return _HistoryView(
+              history: history,
+              totalSpent: _totalSpentFor(history),
+              onViewReceipt: (item) => _showReceiptDialog(historyItem: item),
+              notice: notice,
+            );
+          },
+        );
+      },
     );
   }
-}
-
-class _TabButton extends StatelessWidget {
-  const _TabButton({
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFF2563EB) : const Color(0xFFDBEAFE),
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: isActive
-                ? [
-                    const BoxShadow(
-                      color: Color(0x332563EB),
-                      blurRadius: 10,
-                      offset: Offset(0, 6),
-                    ),
-                  ]
-                : [],
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isActive ? Colors.white : const Color(0xFF60A5FA),
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PaymentSelectionView extends StatelessWidget {
-  const _PaymentSelectionView({
-    required this.bookings,
-    required this.onPayNow,
-  });
-
-  final List<BookingItem> bookings;
-  final ValueChanged<BookingItem> onPayNow;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'PENDING BOOKINGS',
-              style: TextStyle(
-                fontSize: 11,
-                letterSpacing: 1.4,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF94A3B8),
-              ),
-            ),
-            Text(
-              '${bookings.length} items',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF2563EB),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        ...bookings.map((item) => _BookingCard(
-              item: item,
-              onPayNow: () => onPayNow(item),
-            )),
-        const SizedBox(height: 24),
-        _PaymentMethodCard(),
-      ],
-    );
-  }
-}
-
-class _BookingCard extends StatelessWidget {
-  const _BookingCard({required this.item, required this.onPayNow});
-
-  final BookingItem item;
-  final VoidCallback onPayNow;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFDBEAFE)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x11000000),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.type.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF60A5FA),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1E293B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '${item.currency} ${item.amount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 16,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                item.date,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF94A3B8),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: onPayNow,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2563EB),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-                icon: const Icon(Icons.arrow_right_alt_rounded),
-                label: const Text(
-                  'Pay Now',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaymentMethodCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDBEAFE)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.verified_user_rounded,
-                  size: 16, color: Color(0xFF2563EB)),
-              SizedBox(width: 8),
-              Text(
-                'SECURE GATEWAYS',
-                style: TextStyle(
-                  fontSize: 11,
-                  letterSpacing: 1.6,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1E3A8A),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF2563EB), width: 2),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x11000000),
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: const [
-                Icon(Icons.check_circle_rounded,
-                    size: 18, color: Color(0xFF3B82F6)),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'PayPal',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1E3A8A),
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Color(0xFFDBEAFE),
-                    borderRadius: BorderRadius.all(Radius.circular(8)),
-                  ),
-                  child: Padding(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    child: Text(
-                      'DEFAULT',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF1D4ED8),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFDBEAFE)),
-            ),
-            child: Row(
-              children: const [
-                Icon(Icons.radio_button_unchecked,
-                    size: 18, color: Color(0xFFCBD5F5)),
-                SizedBox(width: 8),
-                Text(
-                  'Credit or Debit Card',
-                  style: TextStyle(
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HistoryView extends StatelessWidget {
-  const _HistoryView({
-    required this.history,
-    required this.totalSpent,
-    required this.onViewReceipt,
-  });
-
-  final List<TransactionItem> history;
-  final double totalSpent;
-  final ValueChanged<TransactionItem> onViewReceipt;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFF2563EB),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x332563EB),
-                blurRadius: 12,
-                offset: Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'TOTAL TRANSACTION VALUE',
-                style: TextStyle(
-                  fontSize: 11,
-                  letterSpacing: 1.2,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFFBFDBFE),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'MYR ${totalSpent.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.history_rounded,
-                        size: 14, color: Colors.white),
-                    SizedBox(width: 6),
-                    Text(
-                      'Last 30 Days',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        const Text(
-          'RECENT ACTIVITY',
-          style: TextStyle(
-            fontSize: 11,
-            letterSpacing: 1.2,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF94A3B8),
-          ),
-        ),
-        const SizedBox(height: 10),
-        ...history.map((txn) => _HistoryCard(
-              item: txn,
-              onViewReceipt: () => onViewReceipt(txn),
-            )),
-      ],
-    );
-  }
-}
-
-class _HistoryCard extends StatelessWidget {
-  const _HistoryCard({required this.item, required this.onViewReceipt});
-
-  final TransactionItem item;
-  final VoidCallback onViewReceipt;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFEEF2FF)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x11000000),
-            blurRadius: 8,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFDCFCE7),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.check_circle_rounded,
-                color: Color(0xFF16A34A)),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF1E293B),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${item.date} • ${item.method}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF94A3B8),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                'RM ${item.amount.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              TextButton(
-                onPressed: onViewReceipt,
-                child: const Text(
-                  'View Receipt',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF2563EB),
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProcessingView extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              alignment: Alignment.center,
-              children: const [
-                SizedBox(
-                  width: 90,
-                  height: 90,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 8,
-                    color: Color(0xFF2563EB),
-                    backgroundColor: Color(0xFFDBEAFE),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Verifying Payment',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF1E3A8A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'We are securely connecting to the PayPal gateway. Please wait...',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF64748B)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SuccessView extends StatelessWidget {
-  const _SuccessView({
-    required this.booking,
-    required this.onReceipt,
-    required this.onContinue,
-  });
-
-  final BookingItem? booking;
-  final VoidCallback onReceipt;
-  final VoidCallback onContinue;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: const BoxDecoration(
-                color: Color(0xFF22C55E),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_circle_rounded,
-                  color: Colors.white, size: 48),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Success!',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Payment has been confirmed',
-              style: TextStyle(color: Color(0xFF94A3B8)),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'RM ${(booking?.amount ?? 0).toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF2563EB),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF),
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: const Color(0xFFDBEAFE)),
-              ),
-              child: Column(
-                children: [
-                  _InfoRow(
-                    label: 'Order Reference:',
-                    value: booking?.id ?? '-',
-                  ),
-                  const SizedBox(height: 8),
-                  const _InfoRow(
-                    label: 'Gateway:',
-                    value: 'PayPal SDK',
-                    highlight: true,
-                  ),
-                  const SizedBox(height: 10),
-                  _InfoRow(
-                    label: 'Transaction Date:',
-                    value: DateTime.now().toLocal().toString().split(' ').first,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onReceipt,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: const BorderSide(color: Color(0xFF2563EB), width: 2),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    icon: const Icon(Icons.download_rounded,
-                        color: Color(0xFF2563EB)),
-                    label: const Text(
-                      'Receipt',
-                      style: TextStyle(
-                        color: Color(0xFF2563EB),
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: onContinue,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    icon: const Icon(Icons.arrow_right_alt_rounded),
-                    label: const Text(
-                      'Continue',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.highlight = false,
-  });
-
-  final String label;
-  final String value;
-  final bool highlight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: const TextStyle(color: Color(0xFF64748B))),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            color: highlight ? const Color(0xFF2563EB) : const Color(0xFF0F172A),
-            fontStyle: highlight ? FontStyle.italic : FontStyle.normal,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ReceiptRow extends StatelessWidget {
-  const _ReceiptRow({
-    required this.label,
-    required this.value,
-    this.isMono = false,
-  });
-
-  final String label;
-  final String value;
-  final bool isMono;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Color(0xFF94A3B8))),
-          Flexible(
-            child: Container(
-              padding: isMono
-                  ? const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
-                  : EdgeInsets.zero,
-              decoration: isMono
-                  ? BoxDecoration(
-                      color: const Color(0xFFEFF6FF),
-                      borderRadius: BorderRadius.circular(8),
-                    )
-                  : null,
-              child: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: const Color(0xFF1E293B),
-                  fontSize: isMono ? 11 : 13,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BottomNav extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 72,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Color(0xFFEEF2FF))),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _BottomItem(icon: Icons.home_rounded, label: 'Home'),
-          _BottomItem(icon: Icons.explore_rounded, label: 'Explore'),
-          _BottomItem(icon: Icons.history_rounded, label: 'Trips'),
-          _BottomItem(
-            icon: Icons.credit_card_rounded,
-            label: 'Payment',
-            isActive: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BottomItem extends StatelessWidget {
-  const _BottomItem({
-    required this.icon,
-    required this.label,
-    this.isActive = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isActive ? const Color(0xFF2563EB) : const Color(0xFF94A3B8);
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(icon, color: color),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-            color: color,
-            letterSpacing: isActive ? 0.4 : 0,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class BookingItem {
-  const BookingItem({
-    required this.id,
-    required this.type,
-    required this.name,
-    required this.date,
-    required this.amount,
-    required this.currency,
-  });
-
-  final String id;
-  final String type;
-  final String name;
-  final String date;
-  final double amount;
-  final String currency;
-}
-
-class TransactionItem {
-  const TransactionItem({
-    required this.id,
-    required this.name,
-    required this.amount,
-    required this.date,
-    required this.status,
-    required this.method,
-  });
-
-  final String id;
-  final String name;
-  final double amount;
-  final String date;
-  final String status;
-  final String method;
 }
