@@ -1,6 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:googleapis_auth/auth_io.dart';
+
+import 'chatbot_models.dart';
+import 'chatbot_utils.dart';
+import 'chatbot_widgets.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -10,15 +17,7 @@ class ChatbotScreen extends StatefulWidget {
 }
 
 class _ChatbotScreenState extends State<ChatbotScreen> {
-  final List<_ChatMessage> _messages = [
-    _ChatMessage(
-      text:
-          'Hello! I am your WanderEase assistant. How can I help you today?',
-      sender: _MessageSender.bot,
-      lang: 'en',
-      timestamp: DateTime.now(),
-    ),
-  ];
+  final List<ChatMessage> _messages = [];
 
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -26,12 +25,21 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   bool _isTyping = false;
   bool _isListening = false;
   String _language = 'en';
-  Timer? _typingTimer;
   Timer? _listeningTimer;
+  bool _dialogflowReady = false;
+  AutoRefreshingAuthClient? _authClient;
+  String? _projectId;
+  final String _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+
+  @override
+  void initState() {
+    super.initState();
+    _initDialogflow();
+  }
 
   @override
   void dispose() {
-    _typingTimer?.cancel();
+    _authClient?.close();
     _listeningTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
@@ -47,70 +55,78 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     );
   }
 
-  String _getBotResponse(String input) {
-    final text = input.toLowerCase();
-    const responses = {
-      'weather': {
-        'en':
-            'The weather in Kuala Lumpur today is sunny with a high of 32°C. '
-                'Perfect for sightseeing!',
-        'bm':
-            'Cuaca di Kuala Lumpur hari ini cerah dengan suhu setinggi 32°C. '
-                'Sangat sesuai untuk melawat!',
-        'cn': '吉隆坡今天天气晴朗，最高温度 32°C。非常适合观光！',
-      },
-      'places': {
-        'en': 'I suggest visiting the Petronas Twin Towers, Batu Caves, '
-            'or Merdeka Square.',
-        'bm': 'Saya cadangkan melawat Menara Berkembar Petronas, Gua Batu, '
-            'atau Dataran Merdeka.',
-        'cn': '我建议参观双子塔、黑风洞或独立广场。',
-      },
-      'booking': {
-        'en': 'You can book hotels through our Accommodation tab. '
-            'Would you like to see nearby options?',
-        'bm': 'Anda boleh menempah hotel melalui tab Penginapan. '
-            'Adakah anda ingin melihat pilihan berdekatan?',
-        'cn': '您可以通过“住宿”选项卡预订酒店。您想查看附近的选项吗？',
-      },
-      'default': {
-        'en': "I'm here to help with weather, locations, or bookings. "
-            'Feel free to ask!',
-        'bm': 'Saya di sini untuk membantu dengan cuaca, lokasi, atau tempahan. '
-            'Sila tanya!',
-        'cn': '我可以提供天气、景点或预订方面的帮助。请随时提问！',
-      },
-    };
-
-    var key = 'default';
-    if (text.contains('weather') ||
-        text.contains('cuaca') ||
-        text.contains('天气')) {
-      key = 'weather';
-    } else if (text.contains('suggest') ||
-        text.contains('place') ||
-        text.contains('景点') ||
-        text.contains('cadang')) {
-      key = 'places';
-    } else if (text.contains('book') ||
-        text.contains('hotel') ||
-        text.contains('预订') ||
-        text.contains('tempah')) {
-      key = 'booking';
+  Future<void> _initDialogflow() async {
+    try {
+      final jsonString = await rootBundle.loadString(
+        'assets/dialogflow/traverplannerchatbot-sxcn-601250d812e4.json',
+      );
+      final jsonMap = jsonDecode(jsonString) as Map<String, dynamic>;
+      final projectId = jsonMap['project_id'] as String?;
+      if (projectId == null || projectId.isEmpty) {
+        throw StateError('Dialogflow project_id missing in JSON');
+      }
+      final credentials = ServiceAccountCredentials.fromJson(jsonMap);
+      _authClient = await clientViaServiceAccount(
+        credentials,
+        const ['https://www.googleapis.com/auth/dialogflow'],
+      );
+      _projectId = projectId;
+      if (!mounted) return;
+      setState(() => _dialogflowReady = true);
+    } catch (error) {
+      debugPrint('Dialogflow init failed: $error');
     }
-
-    return responses[key]![_language]!;
   }
 
-  void _handleSendMessage([String? textOverride]) {
+  Future<String?> _fetchDialogflowReply(String message) async {
+    if (!_dialogflowReady || _authClient == null || _projectId == null) {
+      return null;
+    }
+    final uri = Uri.parse(
+      'https://dialogflow.googleapis.com/v2/projects/$_projectId/agent/sessions/$_sessionId:detectIntent',
+    );
+    // Always use 'en' so Dialogflow's English-trained intents always match.
+    // Pass the selected UI language in queryParams.payload so the fulfillment
+    // can reply in the user's chosen language.
+    final body = jsonEncode({
+      'queryInput': {
+        'text': {'text': message, 'languageCode': 'en'},
+      },
+      'queryParams': {
+        'payload': {
+          'fields': {
+            'uiLang': {'stringValue': _language},
+          },
+        },
+      },
+    });
+    final response = await _authClient!.post(
+      uri,
+      headers: {'content-type': 'application/json'},
+      body: body,
+    );
+    if (response.statusCode != 200) {
+      debugPrint('Dialogflow error ${response.statusCode}: ${response.body}');
+      return null;
+    }
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final queryResult = data['queryResult'] as Map<String, dynamic>?;
+    final fulfillmentText = queryResult?['fulfillmentText'] as String?;
+    if (fulfillmentText == null || fulfillmentText.trim().isEmpty) {
+      return null;
+    }
+    return fulfillmentText.trim();
+  }
+
+  Future<void> _handleSendMessage([String? textOverride]) async {
     final textToSend = textOverride ?? _inputController.text;
     if (textToSend.trim().isEmpty) return;
 
     setState(() {
       _messages.add(
-        _ChatMessage(
+        ChatMessage(
           text: textToSend.trim(),
-          sender: _MessageSender.user,
+          sender: MessageSender.user,
           lang: _language,
           timestamp: DateTime.now(),
         ),
@@ -120,23 +136,34 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     });
     _scrollToBottom();
 
-    _typingTimer?.cancel();
-    _typingTimer = Timer(const Duration(milliseconds: 800), () {
-      final responseText = _getBotResponse(textToSend);
+    if (!_dialogflowReady) {
       if (!mounted) return;
-      setState(() {
+      setState(() => _isTyping = false);
+      return;
+    }
+
+    // Translate BM/CN to English so Dialogflow intent matching always works.
+    // The original text is already shown in the chat bubble above.
+    final queryForDialogflow = _language == 'en'
+        ? textToSend.trim()
+        : translateQueryToEnglish(textToSend.trim());
+
+    final reply = await _fetchDialogflowReply(queryForDialogflow);
+    if (!mounted) return;
+    setState(() {
+      if (reply != null && reply.trim().isNotEmpty) {
         _messages.add(
-          _ChatMessage(
-            text: responseText,
-            sender: _MessageSender.bot,
+          ChatMessage(
+            text: reply.trim(),
+            sender: MessageSender.bot,
             lang: _language,
             timestamp: DateTime.now(),
           ),
         );
-        _isTyping = false;
-      });
-      _scrollToBottom();
+      }
+      _isTyping = false;
     });
+    _scrollToBottom();
   }
 
   void _toggleVoiceInput() {
@@ -145,35 +172,15 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
     _listeningTimer?.cancel();
     _listeningTimer = Timer(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
-      const simulated = {
-        'en': 'Show me the weather in Kuala Lumpur',
-        'bm': 'Tempat menarik di Gua Batu',
-        'cn': '推荐几个景点',
-      };
       setState(() {
         _isListening = false;
-        _inputController.text = simulated[_language]!;
       });
     });
   }
 
   void _clearChat() {
-    const cleared = {
-      'en': 'Chat history cleared. How can I help you?',
-      'bm': 'Sejarah perbualan dibersihkan. Bagaimana saya boleh membantu?',
-      'cn': '聊天记录已清除。我能如何帮助您？',
-    };
     setState(() {
-      _messages
-        ..clear()
-        ..add(
-          _ChatMessage(
-            text: cleared[_language]!,
-            sender: _MessageSender.bot,
-            lang: _language,
-            timestamp: DateTime.now(),
-          ),
-        );
+      _messages.clear();
     });
   }
 
@@ -230,7 +237,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'WanderEase Bot',
+                              'ASH ChatBot',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
@@ -285,10 +292,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                     itemCount: _messages.length + (_isTyping ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (_isTyping && index == _messages.length) {
-                        return _TypingBubble();
+                        return const TypingBubble();
                       }
                       final message = _messages[index];
-                      final isUser = message.sender == _MessageSender.user;
+                      final isUser = message.sender == MessageSender.user;
                       return Align(
                         alignment:
                             isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -346,7 +353,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                                     ),
                                   ),
                                   Text(
-                                    _formatTime(message.timestamp),
+                                    formatChatTime(message.timestamp),
                                     style: TextStyle(
                                       fontSize: 9,
                                       color: isUser
@@ -364,33 +371,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  color: Colors.white,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _SuggestionChip(
-                          label: 'Weather',
-                          icon: Icons.cloud_outlined,
-                          onTap: () => _handleSendMessage("What's the weather?"),
-                        ),
-                        _SuggestionChip(
-                          label: 'Places',
-                          icon: Icons.place_outlined,
-                          onTap: () =>
-                              _handleSendMessage('Suggest places to visit'),
-                        ),
-                        _SuggestionChip(
-                          label: 'Hotels',
-                          icon: Icons.public_rounded,
-                          onTap: () => _handleSendMessage('How to book a hotel?'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                Container(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
                   decoration: const BoxDecoration(
                     color: Colors.white,
@@ -400,23 +380,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                   ),
                   child: Row(
                     children: [
-                      IconButton(
-                        onPressed: () {},
-                        icon: const Icon(Icons.emoji_emotions_outlined),
-                        color: const Color(0xFF94A3B8),
-                      ),
                       Expanded(
                         child: TextField(
                           controller: _inputController,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _handleSendMessage(),
+                          textInputAction: TextInputAction.done,
                           onChanged: (_) => setState(() {}),
                           decoration: InputDecoration(
-                            hintText: _language == 'en'
-                                ? 'Type or speak...'
-                                : _language == 'bm'
-                                    ? 'Taip atau cakap...'
-                                    : '打字或语音...',
+                            hintText: inputHintForLanguage(_language),
                             hintStyle: const TextStyle(
                               color: Color(0xFF94A3B8),
                               fontSize: 13,
@@ -562,144 +532,4 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       ),
     );
   }
-}
-
-String _formatTime(DateTime time) {
-  final hours = time.hour.toString().padLeft(2, '0');
-  final minutes = time.minute.toString().padLeft(2, '0');
-  return '$hours:$minutes';
-}
-
-class _TypingBubble extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _Dot(),
-            SizedBox(width: 6),
-            _Dot(delay: 150),
-            SizedBox(width: 6),
-            _Dot(delay: 300),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Dot extends StatefulWidget {
-  const _Dot({this.delay = 0});
-
-  final int delay;
-
-  @override
-  State<_Dot> createState() => _DotState();
-}
-
-class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _animation = Tween<double>(begin: 0.3, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-    if (widget.delay == 0) {
-      _controller.repeat(reverse: true);
-    } else {
-      Future.delayed(Duration(milliseconds: widget.delay), () {
-        if (!mounted) return;
-        _controller.repeat(reverse: true);
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _animation,
-      child: const CircleAvatar(
-        radius: 3,
-        backgroundColor: Color(0xFF60A5FA),
-      ),
-    );
-  }
-}
-
-class _SuggestionChip extends StatelessWidget {
-  const _SuggestionChip({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: TextButton.icon(
-        onPressed: onTap,
-        icon: Icon(icon, size: 16, color: const Color(0xFF2563EB)),
-        label: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF2563EB),
-          ),
-        ),
-        style: TextButton.styleFrom(
-          backgroundColor: const Color(0xFFEFF6FF),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: Color(0xFFDBEAFE)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-enum _MessageSender { user, bot }
-
-class _ChatMessage {
-  _ChatMessage({
-    required this.text,
-    required this.sender,
-    required this.lang,
-    required this.timestamp,
-  });
-
-  final String text;
-  final _MessageSender sender;
-  final String lang;
-  final DateTime timestamp;
 }

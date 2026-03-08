@@ -1,4 +1,4 @@
-package com.example.fyp
+package com.travelplanner.fyp
 
 import io.flutter.embedding.android.FlutterActivity
 

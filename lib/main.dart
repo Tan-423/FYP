@@ -1,12 +1,40 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'Login/login_page.dart';
+import 'Login/auth_state.dart';
 import 'accommodation/accommodation_screen.dart';
 import 'bill_tracking/bill_tracking_screen.dart';
 import 'chatbot/chatbot_screen.dart';
 import 'event_management/event_management.dart';
 import 'community/community_screen.dart';
 import 'payment/payment_screen.dart';
+import 'Translate/translate_screen.dart';
+import 'Achievement/achievement.dart';
+import 'Bus/BusSchedule.dart';
+import 'CarRental/nearbycar.dart';
+import 'TripPlan/tripschedule.dart';
+import 'TripPlan/favourite.dart';
+import 'TripPlan/createtrip.dart';
+import 'Explore/explore.dart';
+import 'Profile/profile.dart';
 
-void main() {
+String _displayNameFor(User? user) {
+  final display = user?.displayName?.trim();
+  if (display != null && display.isNotEmpty) {
+    return display;
+  }
+  final email = user?.email?.trim();
+  if (email != null && email.isNotEmpty) {
+    return email.split('@').first;
+  }
+  return 'Traveler';
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  await FirebaseAuth.instance.signOut(); // force login on every app start
   runApp(const FypApp());
 }
 
@@ -23,7 +51,29 @@ class FypApp extends StatelessWidget {
         colorSchemeSeed: Colors.indigo,
         fontFamilyFallback: const ['Segoe UI', 'Roboto'],
       ),
-      home: const MainShell(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData && !otpInProgress) {
+          return const MainShell();
+        }
+        return const LoginPage();
+      },
     );
   }
 }
@@ -38,7 +88,6 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _tabIndex = 0;
   int _notificationCount = 3;
-  String _searchQuery = '';
 
   final List<ModuleItem> _moduleCatalog = const [
     ModuleItem(
@@ -125,17 +174,6 @@ class _MainShellState extends State<MainShell> {
       ],
     ),
     ModuleItem(
-      id: 'explore',
-      label: 'Explore',
-      icon: Icons.explore_rounded,
-      color: Color(0xFF3B82F6),
-      subtitle: 'Discover places',
-      features: [
-        'Top destinations and highlights',
-        'City details and attractions',
-      ],
-    ),
-    ModuleItem(
       id: 'trips',
       label: 'Trip Planner',
       icon: Icons.map_rounded,
@@ -145,11 +183,49 @@ class _MainShellState extends State<MainShell> {
     ),
     ModuleItem(
       id: 'transport',
-      label: 'Transport',
+      label: 'Bus',
       icon: Icons.directions_bus_rounded,
       color: Color(0xFFFBBF24),
-      subtitle: 'Bus & car rental',
-      features: ['Bus booking and tickets', 'Car rental booking'],
+      subtitle: 'Bus tickets & routes',
+      features: ['Bus booking and tickets', 'View routes and schedules'],
+    ),
+    ModuleItem(
+      id: 'car_rental',
+      label: 'Car Rental',
+      icon: Icons.car_rental,
+      color: Color(0xFFEF4444),
+      subtitle: 'Rent a vehicle',
+      features: [
+        'Browse available vehicles',
+        'Book and manage rentals',
+        'View rental history',
+      ],
+    ),
+    ModuleItem(
+      id: 'translate',
+      label: 'Translate',
+      icon: Icons.translate_rounded,
+      color: Color(0xFF14B8A6),
+      subtitle: 'Language translation',
+      features: [
+        'Real-time text translation',
+        'Support for multiple languages',
+        'Camera-based text translation',
+        'Saved phrases and history',
+      ],
+    ),
+    ModuleItem(
+      id: 'achievement',
+      label: 'Achievement',
+      icon: Icons.emoji_events_rounded,
+      color: Color(0xFFF59E0B),
+      subtitle: 'Badges & milestones',
+      features: [
+        'Earn badges for travel milestones',
+        'Track your travel streaks',
+        'Leaderboard with other travelers',
+        'Unlock rewards and perks',
+      ],
     ),
   ];
 
@@ -163,41 +239,66 @@ class _MainShellState extends State<MainShell> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => ModuleSheet(
-        module: module,
-        onOpenModule: () {
-          Navigator.of(context).pop();
-          if (module.id == 'bills') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const BillTrackingScreen()),
-            );
-        } else if (module.id == 'payment') {
-          Navigator.of(rootContext).push(
-            MaterialPageRoute(builder: (_) => const PaymentScreen()),
-          );
-          } else if (module.id == 'events') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const EventManagementScreen()),
-            );
-          } else if (module.id == 'chatbot') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const ChatbotScreen()),
-            );
-          } else if (module.id == 'accommodation') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const AccommodationScreen()),
-            );
-          } else if (module.id == 'community') {
-            Navigator.of(rootContext).push(
-              MaterialPageRoute(builder: (_) => const CommunityScreen()),
-            );
-          } else {
-            ScaffoldMessenger.of(rootContext).showSnackBar(
-              SnackBar(content: Text('${module.label} module coming soon')),
-            );
-          }
-        },
-      ),
+      builder:
+          (context) => ModuleSheet(
+            module: module,
+            onOpenModule: () {
+              Navigator.of(context).pop();
+              if (module.id == 'bills') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const BillTrackingScreen()),
+                );
+              } else if (module.id == 'payment') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const PaymentScreen()),
+                );
+              } else if (module.id == 'events') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(
+                    builder: (_) => const EventManagementScreen(),
+                  ),
+                );
+              } else if (module.id == 'chatbot') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+                );
+              } else if (module.id == 'accommodation') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(
+                    builder: (_) => const AccommodationScreen(),
+                  ),
+                );
+              } else if (module.id == 'community') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const CommunityScreen()),
+                );
+              } else if (module.id == 'translate') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const TranslateScreen()),
+                );
+              } else if (module.id == 'achievement') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const AchievementScreen()),
+                );
+              } else if (module.id == 'transport') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const BusSchedulePage()),
+                );
+              } else if (module.id == 'car_rental') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const NearbyCarsScreen()),
+                );
+              } else if (module.id == 'trips') {
+                Navigator.of(rootContext).push(
+                  MaterialPageRoute(builder: (_) => const CreateTripScreen()),
+                );
+              } else {
+                ScaffoldMessenger.of(rootContext).showSnackBar(
+                  SnackBar(content: Text('${module.label} module coming soon')),
+                );
+              }
+            },
+          ),
     );
   }
 
@@ -207,19 +308,13 @@ class _MainShellState extends State<MainShell> {
       HomeView(
         notificationCount: _notificationCount,
         onClearNotifications: () => setState(() => _notificationCount = 0),
-        searchQuery: _searchQuery,
-        onSearchChanged: (value) => setState(() => _searchQuery = value),
         onModuleTap: _openModule,
         moduleCatalog: _moduleCatalog,
+        onNavigateToTrips: () => setState(() => _tabIndex = 2),
       ),
-      const ExploreView(),
-      TripsView(
-        onOpenBills: () {
-          final bills = _moduleCatalog.firstWhere((m) => m.id == 'bills');
-          _openModule(bills);
-        },
-      ),
-      const ProfileView(),
+      const MapViewScreen(),
+      const SavedPlansScreen(),
+      const ProfileScreen(),
     ];
 
     return Scaffold(
@@ -241,7 +336,7 @@ class _MainShellState extends State<MainShell> {
             icon: Icon(Icons.explore_rounded),
             label: 'Explore',
           ),
-          NavigationDestination(icon: Icon(Icons.map_rounded), label: 'Trips'),
+          NavigationDestination(icon: Icon(Icons.favorite_rounded), label: 'Saved'),
           NavigationDestination(
             icon: Icon(Icons.person_rounded),
             label: 'Profile',
@@ -300,41 +395,32 @@ class HomeView extends StatelessWidget {
     super.key,
     required this.notificationCount,
     required this.onClearNotifications,
-    required this.searchQuery,
-    required this.onSearchChanged,
     required this.onModuleTap,
     required this.moduleCatalog,
+    required this.onNavigateToTrips,
   });
 
   final int notificationCount;
   final VoidCallback onClearNotifications;
-  final String searchQuery;
-  final ValueChanged<String> onSearchChanged;
   final ValueChanged<ModuleItem> onModuleTap;
   final List<ModuleItem> moduleCatalog;
+  final VoidCallback onNavigateToTrips;
 
   @override
   Widget build(BuildContext context) {
     final quickModules =
         [
-          _quickItem('explore'),
           _quickItem('trips'),
           _quickItem('accommodation'),
           _quickItem('transport'),
+          _quickItem('car_rental'),
           _quickItem('events'),
           _quickItem('bills'),
           _quickItem('payment'),
           _quickItem('community'),
+          _quickItem('translate'),
+          _quickItem('achievement'),
         ].whereType<ModuleItem>().toList();
-
-    final filtered =
-        quickModules
-            .where(
-              (m) => m.label.toLowerCase().contains(
-                searchQuery.toLowerCase().trim(),
-              ),
-            )
-            .toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -346,10 +432,8 @@ class HomeView extends StatelessWidget {
             onClearNotifications: onClearNotifications,
           ),
           const SizedBox(height: 16),
-          _SearchField(value: searchQuery, onChanged: onSearchChanged),
+          _SeasonTripsSection(onNavigateToTrips: onNavigateToTrips),
           const SizedBox(height: 16),
-          if (searchQuery.isEmpty) const _HeroCard(),
-          if (searchQuery.isEmpty) const SizedBox(height: 16),
           Text(
             'Main Modules',
             style: Theme.of(
@@ -364,18 +448,9 @@ class HomeView extends StatelessWidget {
             crossAxisSpacing: 8,
             mainAxisSpacing: 12,
             children: [
-              for (final item in filtered)
+              for (final item in quickModules)
                 _ModuleTile(module: item, onTap: () => onModuleTap(item)),
             ],
-          ),
-          const SizedBox(height: 16),
-          _CommunityCard(
-            onTap: () {
-              final community = moduleCatalog.firstWhere(
-                (m) => m.id == 'community',
-              );
-              onModuleTap(community);
-            },
           ),
         ],
       ),
@@ -390,144 +465,12 @@ class HomeView extends StatelessWidget {
   }
 }
 
-class ExploreView extends StatelessWidget {
-  const ExploreView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final cities = const [
-      _CityCard(title: 'Kyoto', color: Color(0xFFFBCFE8)),
-      _CityCard(title: 'Bali', color: Color(0xFF99F6E4)),
-      _CityCard(title: 'Iceland', color: Color(0xFFBFDBFE)),
-      _CityCard(title: 'Rome', color: Color(0xFFFED7AA)),
-      _CityCard(title: 'Paris', color: Color(0xFFE9D5FF)),
-      _CityCard(title: 'New York', color: Color(0xFFE5E7EB)),
-    ];
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Explore World',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            children: cities,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class TripsView extends StatelessWidget {
-  const TripsView({super.key, required this.onOpenBills});
-
-  final VoidCallback onOpenBills;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'My Trips',
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          _TripCard(
-            title: 'Tokyo Adventure',
-            dateRange: 'Oct 15 - Oct 22',
-            status: 'UPCOMING',
-            statusColor: const Color(0xFFDBEAFE),
-            statusTextColor: const Color(0xFF2563EB),
-            primaryAction: 'Itinerary',
-            secondaryAction: 'Budget',
-            onSecondaryTap: onOpenBills,
-          ),
-          const SizedBox(height: 12),
-          const _TripCard(
-            title: 'Paris Weekend',
-            dateRange: 'Sep 05 - Sep 07',
-            status: 'PAST',
-            statusColor: Color(0xFFE5E7EB),
-            statusTextColor: Color(0xFF6B7280),
-            isDisabled: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class ProfileView extends StatelessWidget {
-  const ProfileView({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final items = const [
-      _ProfileItem(icon: Icons.person_rounded, label: 'Personal Info'),
-      _ProfileItem(icon: Icons.credit_card_rounded, label: 'Payment Methods'),
-      _ProfileItem(icon: Icons.settings_rounded, label: 'Settings'),
-      _ProfileItem(icon: Icons.translate_rounded, label: 'Language'),
-      _ProfileItem(
-        icon: Icons.logout_rounded,
-        label: 'Log Out',
-        isDestructive: true,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          const CircleAvatar(
-            radius: 44,
-            backgroundImage: NetworkImage(
-              'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex',
-            ),
-            backgroundColor: Color(0xFFE5E7EB),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Alex Johnson',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Level 12 • Globe Trotter',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: const Color(0xFFF59E0B),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 20),
-          for (final item in items) _ProfileTile(item: item),
-        ],
-      ),
-    );
-  }
-}
-
 class ModuleSheet extends StatelessWidget {
-  const ModuleSheet({super.key, required this.module, required this.onOpenModule});
+  const ModuleSheet({
+    super.key,
+    required this.module,
+    required this.onOpenModule,
+  });
 
   final ModuleItem module;
   final VoidCallback onOpenModule;
@@ -626,6 +569,323 @@ class ModuleItem {
   final List<String> features;
 }
 
+// ── Seasonal Trip data models ──────────────────────────────────────────────
+
+class TripActivity {
+  final String title;
+  final String subtitle;
+  final String duration;
+  final String imageUrl;
+
+  TripActivity({
+    required this.title,
+    required this.subtitle,
+    required this.duration,
+    required this.imageUrl,
+  });
+}
+
+class SeasonalTrip {
+  final String title;
+  final String location;
+  final String tag;
+  final String imageUrl;
+  final int durationDays;
+  final Map<String, List<TripActivity>> itinerary;
+
+  SeasonalTrip({
+    required this.title,
+    required this.location,
+    required this.tag,
+    required this.imageUrl,
+    required this.durationDays,
+    required this.itinerary,
+  });
+}
+
+// ── Season Trips Section widget ────────────────────────────────────────────
+
+class _SeasonTripsSection extends StatelessWidget {
+  const _SeasonTripsSection({required this.onNavigateToTrips});
+
+  final VoidCallback onNavigateToTrips;
+
+  static final List<SeasonalTrip> _trips = [
+    SeasonalTrip(
+      title: 'Penang Food & Heritage',
+      location: 'Penang, Malaysia',
+      tag: 'Cultural',
+      imageUrl:
+          'https://images.unsplash.com/photo-1596423735880-5f2a689b903e?auto=format&fit=crop&w=800&q=80',
+      durationDays: 2,
+      itinerary: {
+        'day_0': [
+          TripActivity(
+            title: 'Georgetown Street Art Walk',
+            subtitle: 'Explore famous murals and historic streets.',
+            duration: '120 min',
+            imageUrl:
+                'https://images.unsplash.com/photo-1510155093557-41804f323a7e?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Clan Jetties Visit',
+            subtitle: 'Experience the traditional water villages.',
+            duration: '90 min',
+            imageUrl:
+                'https://images.unsplash.com/photo-1582236302061-07b1a1ddf4fa?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+        'day_1': [
+          TripActivity(
+            title: 'Penang Hill Funicular',
+            subtitle: 'Ride up for a panoramic view of the island.',
+            duration: '3 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1601004113010-093f1cc43026?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Kek Lok Si Temple',
+            subtitle: 'Visit the largest Buddhist temple in Malaysia.',
+            duration: '2 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1663085542385-d6a13db3065a?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+      },
+    ),
+    SeasonalTrip(
+      title: 'KL City Escape',
+      location: 'Kuala Lumpur, Malaysia',
+      tag: 'Popular',
+      imageUrl:
+          'https://images.unsplash.com/photo-1513415564515-763d91423bdd?auto=format&fit=crop&w=800&q=80',
+      durationDays: 2,
+      itinerary: {
+        'day_0': [
+          TripActivity(
+            title: 'Petronas Twin Towers',
+            subtitle: 'Visit the iconic towers and KLCC park.',
+            duration: '2 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1584646098378-0874589d79b1?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Saloma Link Bridge',
+            subtitle: 'Night walk with LED light views.',
+            duration: '60 min',
+            imageUrl:
+                'https://images.unsplash.com/photo-1620600293189-e771e06d9539?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+        'day_1': [
+          TripActivity(
+            title: 'Batu Caves Exploration',
+            subtitle: 'Climb the 272 colorful steps.',
+            duration: '3 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1544256608-f4ee0b59b1dc?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Jalan Alor Food Street',
+            subtitle: 'Taste the best local street food.',
+            duration: '2 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+      },
+    ),
+    SeasonalTrip(
+      title: 'Langkawi Island Retreat',
+      location: 'Kedah, Malaysia',
+      tag: 'Nature',
+      imageUrl:
+          'https://images.unsplash.com/photo-1518509562904-e7ef99cdcc86?auto=format&fit=crop&w=800&q=80',
+      durationDays: 2,
+      itinerary: {
+        'day_0': [
+          TripActivity(
+            title: 'Langkawi Sky Bridge',
+            subtitle: 'Walk above the rainforest canopy.',
+            duration: '3 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1540979844053-619f783d5a22?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Pantai Cenang Sunset',
+            subtitle: 'Relax by the beach and watch the fire show.',
+            duration: '2 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+        'day_1': [
+          TripActivity(
+            title: 'Island Hopping Tour',
+            subtitle: 'Visit Dayang Bunting and Beras Basah.',
+            duration: '4 hours',
+            imageUrl:
+                'https://images.unsplash.com/photo-1518509562904-e7ef99cdcc86?auto=format&fit=crop&w=800&q=80',
+          ),
+          TripActivity(
+            title: 'Eagle Square',
+            subtitle: 'Take photos at Dataran Lang.',
+            duration: '60 min',
+            imageUrl:
+                'https://images.unsplash.com/photo-1618349275069-b4de8cfdfb24?auto=format&fit=crop&w=800&q=80',
+          ),
+        ],
+      },
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Season Trip Plans',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            Text(
+              'See All',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF2563EB),
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 300,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: _trips.length,
+            itemBuilder: (context, index) {
+              final trip = _trips[index];
+              return GestureDetector(
+                onTap: () async {
+                  final result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => TripSchedulePage(tripTemplate: trip),
+                    ),
+                  );
+                  if (result == true) onNavigateToTrips();
+                },
+                child: _buildCard(trip),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Click on a curated seasonal trip above to view its daily schedule and add it to your plans.',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: Colors.black54),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCard(SeasonalTrip trip) {
+    return Container(
+      width: 240,
+      margin: const EdgeInsets.only(right: 14),
+      decoration: BoxDecoration(
+        color: Colors.grey[300],
+        borderRadius: BorderRadius.circular(20),
+        image: DecorationImage(
+          image: NetworkImage(trip.imageUrl),
+          fit: BoxFit.cover,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.transparent, Colors.black.withOpacity(0.75)],
+                stops: const [0.5, 1.0],
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    trip.tag,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  trip.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.place, color: Colors.white70, size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      trip.location,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.notificationCount,
@@ -657,11 +917,19 @@ class _Header extends StatelessWidget {
                   context,
                 ).textTheme.bodySmall?.copyWith(color: Colors.black54),
               ),
-              Text(
-                'Alex Johnson',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              StreamBuilder<User?>(
+                stream: FirebaseAuth.instance.userChanges(),
+                builder: (context, snapshot) {
+                  final displayName = _displayNameFor(
+                    snapshot.data ?? FirebaseAuth.instance.currentUser,
+                  );
+                  return Text(
+                    displayName,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -679,94 +947,6 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _SearchField extends StatelessWidget {
-  const _SearchField({required this.value, required this.onChanged});
-
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      onChanged: onChanged,
-      decoration: InputDecoration(
-        hintText: 'Where to next? or Find a tool...',
-        prefixIcon: const Icon(Icons.search_rounded),
-        filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    );
-  }
-}
-
-class _HeroCard extends StatelessWidget {
-  const _HeroCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF2563EB), Color(0xFF4F46E5)],
-        ),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Upcoming',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: Colors.white70),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'Tokyo Adventure',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Oct 15 - Oct 22 • 4 Guests',
-            style: TextStyle(color: Color(0xFFBFDBFE)),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF1D4ED8),
-            ),
-            onPressed: () {},
-            child: const Text('View Itinerary'),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _ModuleTile extends StatelessWidget {
   const _ModuleTile({required this.module, required this.onTap});
@@ -802,254 +982,6 @@ class _ModuleTile extends StatelessWidget {
             ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _CommunityCard extends StatelessWidget {
-  const _CommunityCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFCFFAFE),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(
-                Icons.people_outline_rounded,
-                color: Color(0xFF0891B2),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Community Hub',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    "3 new posts in 'Solo Travelers'",
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-            const CircleAvatar(radius: 12, backgroundColor: Color(0xFFE5E7EB)),
-            const SizedBox(width: 4),
-            const CircleAvatar(radius: 12, backgroundColor: Color(0xFFE5E7EB)),
-            const SizedBox(width: 4),
-            const CircleAvatar(radius: 12, backgroundColor: Color(0xFFE5E7EB)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CityCard extends StatelessWidget {
-  const _CityCard({required this.title, required this.color});
-
-  final String title;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(18),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.bottomLeft,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TripCard extends StatelessWidget {
-  const _TripCard({
-    required this.title,
-    required this.dateRange,
-    required this.status,
-    required this.statusColor,
-    required this.statusTextColor,
-    this.primaryAction,
-    this.secondaryAction,
-    this.onSecondaryTap,
-    this.isDisabled = false,
-  });
-
-  final String title;
-  final String dateRange;
-  final String status;
-  final Color statusColor;
-  final Color statusTextColor;
-  final String? primaryAction;
-  final String? secondaryAction;
-  final VoidCallback? onSecondaryTap;
-  final bool isDisabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: isDisabled ? Colors.black45 : Colors.black87,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  status,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: statusTextColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(
-                Icons.calendar_today_rounded,
-                size: 16,
-                color: Colors.black54,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                dateRange,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.black54),
-              ),
-            ],
-          ),
-          if (!isDisabled && primaryAction != null && secondaryAction != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () {},
-                      child: Text(primaryAction!),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onSecondaryTap,
-                      child: Text(secondaryAction!),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProfileItem {
-  const _ProfileItem({
-    required this.icon,
-    required this.label,
-    this.isDestructive = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool isDestructive;
-}
-
-class _ProfileTile extends StatelessWidget {
-  const _ProfileTile({required this.item});
-
-  final _ProfileItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = item.isDestructive ? Colors.red : Colors.black87;
-    return Card(
-      elevation: 0,
-      margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      child: ListTile(
-        leading: Icon(item.icon, color: color),
-        title: Text(item.label, style: TextStyle(color: color)),
-        trailing: const Icon(
-          Icons.chevron_right_rounded,
-          color: Colors.black38,
-        ),
-        onTap: () {},
       ),
     );
   }
