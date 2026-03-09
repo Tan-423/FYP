@@ -8,6 +8,9 @@ import 'otp_verification_page.dart';
 import 'sign_up_page.dart';
 import 'forgot_password_page.dart';
 import 'auth_state.dart';
+import '../Admin/admin.dart';
+
+const String _adminEmail = 'admin@gmail.com';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -84,9 +87,20 @@ class _LoginPageState extends State<LoginPage> {
           .signInWithEmailAndPassword(email: email, password: password);
 
       if (userCredential.user != null) {
-        // Credentials verified. Sign out so Firebase session is clean
-        // until OTP is confirmed. AuthGate won't redirect because
-        // otpInProgress is true.
+        // Admin: skip OTP and go directly to admin dashboard
+        if (email.toLowerCase() == _adminEmail) {
+          otpInProgress = false;
+          if (mounted) {
+            _emailController.clear();
+            _passwordController.clear();
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+            );
+          }
+          return;
+        }
+
+        // Regular user: sign out and send OTP
         await FirebaseAuth.instance.signOut();
 
         String generatedOtp = (Random().nextInt(900000) + 100000).toString();

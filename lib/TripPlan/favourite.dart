@@ -116,8 +116,9 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
             // --- LIST ---
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('trips').where('userId', isEqualTo: userId).orderBy('startDate', descending: true).snapshots(),
+                stream: FirebaseFirestore.instance.collection('trips').where('userId', isEqualTo: userId).snapshots(),
                 builder: (context, snapshot) {
+                  if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
                   if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
                   var allTrips = snapshot.data!.docs.map((doc) {
@@ -130,7 +131,8 @@ class _SavedPlansScreenState extends State<SavedPlansScreen> {
                       status: "Planned",
                       imageUrl: "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&w=500",
                     );
-                  }).toList();
+                  }).toList()
+                  ..sort((a, b) => b.startDate.compareTo(a.startDate));
 
                   return ListView.builder(
                     padding: const EdgeInsets.all(16),

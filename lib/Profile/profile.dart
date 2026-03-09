@@ -8,7 +8,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../CarRental/carreturn.dart';
 import '../CarRental/Carcancel_booking.dart';
 import '../CarRental/report_incident.dart';
-import '../Login/login_page.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -50,11 +49,7 @@ class ProfileScreen extends StatelessWidget {
                                   onPressed: () async {
                                     await FirebaseAuth.instance.signOut();
                                     if (context.mounted) {
-                                      Navigator.pushAndRemoveUntil(
-                                          context,
-                                          MaterialPageRoute(builder: (context) => const LoginPage()),
-                                              (route) => false
-                                      );
+                                      Navigator.of(context).popUntil((route) => route.isFirst);
                                     }
                                   },
                                   child: const Text("Log Out")

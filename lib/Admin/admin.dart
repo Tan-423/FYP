@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
-import 'package:intl/intl.dart';
-
-// Ensure this matches your login page file name
-import '../main.dart';
 
 class AdminDashboardScreen extends StatelessWidget {
   const AdminDashboardScreen({super.key});
@@ -54,7 +51,16 @@ class AdminDashboardScreen extends StatelessWidget {
                           children: [
                             const CircleAvatar(radius: 20, backgroundImage: NetworkImage('https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=100&q=80')),
                             const SizedBox(width: 8),
-                            IconButton(icon: const Icon(Icons.logout), color: Colors.grey[500], onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const LoginPage()), (route) => false)),
+                            IconButton(
+                              icon: const Icon(Icons.logout),
+                              color: Colors.grey[500],
+                              onPressed: () async {
+                                await FirebaseAuth.instance.signOut();
+                                if (context.mounted) {
+                                  Navigator.of(context).popUntil((route) => route.isFirst);
+                                }
+                              },
+                            ),
                           ],
                         ),
                       ],

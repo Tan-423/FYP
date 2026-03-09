@@ -188,16 +188,27 @@ class _NearbyCarsScreenState extends State<NearbyCarsScreen> with SingleTickerPr
 
   Future<void> _seedDatabaseIfEmpty() async {
     final collection = FirebaseFirestore.instance.collection('rental_cars');
-    final snapshot = await collection.limit(1).get();
 
-    if (snapshot.docs.isEmpty) {
-      final dummyCars = [
-        {'name': 'Toyota Camry', 'type': 'Standard Sedan', 'price': 54.0, 'imageUrl': 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fd?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '4 Seats'], 'tag': 'Popular', 'status': 'available', 'lat': 3.1450, 'lng': 101.6900, 'bookedDates': []},
-        {'name': 'Honda Civic', 'type': 'Compact', 'price': 45.0, 'imageUrl': 'https://images.unsplash.com/photo-1606016159991-d17b67472545?auto=format&fit=crop&w=600', 'features': ['Hybrid', 'Auto', '5 Seats'], 'tag': 'Eco', 'status': 'available', 'lat': 3.1455, 'lng': 101.6905, 'bookedDates': []},
-        {'name': 'Tesla Model 3', 'type': 'Electric', 'price': 85.0, 'imageUrl': 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?auto=format&fit=crop&w=600', 'features': ['Electric', 'Auto', '5 Seats'], 'tag': 'Premium', 'status': 'available', 'lat': 3.1460, 'lng': 101.6890, 'bookedDates': []},
-        {'name': 'Perodua Myvi', 'type': 'Economy', 'price': 30.0, 'imageUrl': 'https://images.unsplash.com/photo-1590362891991-f776e747a588?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '5 Seats'], 'tag': 'Budget', 'status': 'available', 'lat': 3.1300, 'lng': 101.6950, 'bookedDates': []}
-      ];
-      for (var car in dummyCars) { await collection.add(car); }
+    final List<Map<String, dynamic>> allSampleCars = [
+      {'name': 'Toyota Camry', 'type': 'Standard Sedan', 'price': 54.0, 'imageUrl': 'https://images.unsplash.com/photo-1621007947382-bb3c3994e3fd?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '4 Seats'], 'tag': 'Popular', 'status': 'available', 'lat': 3.1450, 'lng': 101.6900, 'bookedDates': []},
+      {'name': 'Honda Civic', 'type': 'Compact', 'price': 45.0, 'imageUrl': 'https://images.unsplash.com/photo-1606016159991-d17b67472545?auto=format&fit=crop&w=600', 'features': ['Hybrid', 'Auto', '5 Seats'], 'tag': 'Eco', 'status': 'available', 'lat': 3.1455, 'lng': 101.6905, 'bookedDates': []},
+      {'name': 'Tesla Model 3', 'type': 'Electric', 'price': 85.0, 'imageUrl': 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?auto=format&fit=crop&w=600', 'features': ['Electric', 'Auto', '5 Seats'], 'tag': 'Premium', 'status': 'available', 'lat': 3.1460, 'lng': 101.6890, 'bookedDates': []},
+      {'name': 'Perodua Myvi', 'type': 'Economy', 'price': 30.0, 'imageUrl': 'https://images.unsplash.com/photo-1590362891991-f776e747a588?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '5 Seats'], 'tag': 'Budget', 'status': 'available', 'lat': 3.1300, 'lng': 101.6950, 'bookedDates': []},
+      {'name': 'BMW 3 Series', 'type': 'Luxury Sedan', 'price': 120.0, 'imageUrl': 'https://images.unsplash.com/photo-1555215695-3004980ad54e?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '5 Seats'], 'tag': 'Premium', 'status': 'available', 'lat': 3.1480, 'lng': 101.6870, 'bookedDates': []},
+      {'name': 'Toyota Vios', 'type': 'Budget Sedan', 'price': 38.0, 'imageUrl': 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '5 Seats'], 'tag': 'Budget', 'status': 'available', 'lat': 3.1320, 'lng': 101.6920, 'bookedDates': []},
+      {'name': 'Proton X50', 'type': 'SUV', 'price': 65.0, 'imageUrl': 'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=600', 'features': ['Gas', 'Auto', '5 Seats'], 'tag': 'Popular', 'status': 'available', 'lat': 3.1410, 'lng': 101.6930, 'bookedDates': []},
+    ];
+
+    // Fetch existing car names to avoid duplicates
+    final existingSnapshot = await collection.get();
+    final existingNames = existingSnapshot.docs
+        .map((doc) => (doc.data() as Map)['name']?.toString() ?? '')
+        .toSet();
+
+    for (var car in allSampleCars) {
+      if (!existingNames.contains(car['name'])) {
+        await collection.add(car);
+      }
     }
   }
 

@@ -68,7 +68,8 @@ class _BusSchedulePageState extends State<BusSchedulePage> {
     }
 
     try {
-      var ticketsSnapshot = await db
+      // Read tickets from PRIMARY project (where profile reads from)
+      var ticketsSnapshot = await FirebaseFirestore.instance
           .collection('tickets')
           .where('userId', isEqualTo: user.uid)
           .get();

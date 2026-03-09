@@ -66,12 +66,12 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
     }
 
     try {
-      final db = await getBusFirestore();
       DateTime now = DateTime.now();
       String travelDate = "${now.year}-${now.month}-${now.day}";
-
       String ticketId = "TKT-${DateTime.now().millisecondsSinceEpoch}";
-      await db.collection('tickets').add({
+
+      // Save ticket to PRIMARY project (so it shows in profile)
+      await FirebaseFirestore.instance.collection('tickets').add({
         'userId': user.uid,
         'ticketId': ticketId,
         'busName': widget.busName,
@@ -83,7 +83,9 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      await db.collection('bus_routes').doc(widget.busId).set({
+      // Update seat availability in partner's project (where bus_routes live)
+      final busDb = await getBusFirestore();
+      await busDb.collection('bus_routes').doc(widget.busId).set({
         'bookedSeats': FieldValue.arrayUnion(_selectedSeats.toList())
       }, SetOptions(merge: true));
 
