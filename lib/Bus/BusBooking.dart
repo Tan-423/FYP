@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -25,13 +27,43 @@ class SeatSelectionScreen extends StatefulWidget {
 class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   final Set<String> _selectedSeats = {};
   Set<String> _occupiedSeats = {};
+  // Booked seats tracked in the primary project (reliable fallback)
+  Set<String> _primaryBookedSeats = {};
   late double _pricePerSeat;
+  StreamSubscription<DocumentSnapshot>? _primarySeatsSubscription;
 
   @override
   void initState() {
     super.initState();
     String cleanPrice = widget.price.replaceAll(RegExp(r'[^0-9.]'), '');
     _pricePerSeat = double.tryParse(cleanPrice) ?? 25.00;
+    _listenToPrimaryBookedSeats();
+  }
+
+  /// Listens to the primary Firebase project for booked seats.
+  /// This is a reliable source that doesn't depend on the secondary project's
+  /// Firestore security rules allowing writes.
+  void _listenToPrimaryBookedSeats() {
+    _primarySeatsSubscription = FirebaseFirestore.instance
+        .collection('bus_seats')
+        .doc(widget.busId)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      if (snapshot.exists) {
+        final data = snapshot.data();
+        final rawSeats = (data?['bookedSeats'] as List<dynamic>?) ?? [];
+        setState(() {
+          _primaryBookedSeats = rawSeats.map((s) => s.toString()).toSet();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _primarySeatsSubscription?.cancel();
+    super.dispose();
   }
 
   void _goToPayment() {
@@ -52,13 +84,14 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
           selectedSeats: _selectedSeats,
           busName: widget.busName,
           busId: widget.busId,
-          onPaymentSuccess: _finalizeBooking,
+          onPaymentSuccess: ({String? paymentId, String? payerEmail}) =>
+              _finalizeBooking(paymentId: paymentId, payerEmail: payerEmail),
         ),
       ),
     );
   }
 
-  Future<void> _finalizeBooking() async {
+  Future<void> _finalizeBooking({String? paymentId, String? payerEmail}) async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       debugPrint("Error: User is not logged in.");
@@ -80,14 +113,32 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         'price': _selectedSeats.length * _pricePerSeat,
         'date': travelDate,
         'qrData': "BUS|$ticketId|${user.uid}",
+        'paymentId': paymentId,
+        'payerEmail': payerEmail,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      // Update seat availability in partner's project (where bus_routes live)
-      final busDb = await getBusFirestore();
-      await busDb.collection('bus_routes').doc(widget.busId).set({
+      // Write to PRIMARY project first — this is the reliable source of truth
+      // and is not blocked by the secondary project's Firestore security rules.
+      await FirebaseFirestore.instance
+          .collection('bus_seats')
+          .doc(widget.busId)
+          .set({
         'bookedSeats': FieldValue.arrayUnion(_selectedSeats.toList())
       }, SetOptions(merge: true));
+
+      // Also attempt to update the secondary (partner's) project so the
+      // remaining seat count stays accurate. This may fail silently if
+      // the partner's Firestore rules block external writes — that's OK
+      // because the primary project is the authoritative seat source now.
+      try {
+        final busDb = await getBusFirestore();
+        await busDb.collection('bus_routes').doc(widget.busId).set({
+          'bookedSeats': FieldValue.arrayUnion(_selectedSeats.toList())
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint("Secondary project seat update failed (non-critical): $e");
+      }
 
       debugPrint("Booking finalized successfully!");
 
@@ -136,7 +187,13 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
 
           var data = snapshot.data!.data() as Map<String, dynamic>?;
           List<dynamic> bookedList = data != null && data.containsKey('bookedSeats') ? data['bookedSeats'] : [];
-          _occupiedSeats = bookedList.map((e) => e.toString()).toSet();
+          // Merge seats from both secondary project (bus_routes) and
+          // primary project (bus_seats) so seats are always marked occupied
+          // even if the secondary project write failed.
+          _occupiedSeats = {
+            ...bookedList.map((e) => e.toString()),
+            ..._primaryBookedSeats,
+          };
           _selectedSeats.removeWhere((seat) => _occupiedSeats.contains(seat));
 
           final totalAmount = _selectedSeats.length * _pricePerSeat;
