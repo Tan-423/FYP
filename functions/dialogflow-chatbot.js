@@ -2,7 +2,7 @@
 
 /**
  * Dialogflow Fulfillment Webhook for Travel Planner Chatbot
- * 
+ *
  * Features:
  * - Accommodation search by location
  * - Event search by type (Food, Music, Culture)
@@ -13,7 +13,47 @@
  * - Limited results (max 5) to prevent overwhelming responses
  * - Enhanced error handling and logging
  * - Rich formatted responses with pricing and details
+ * - Weather API integration via OpenWeatherMap
+ * - Location-aware suggestions using user's nearby city
  */
+
+const https = require('https');
+
+// ---------------------------------------------------------------------------
+// Fetch current weather from OpenWeatherMap (free tier)
+// ---------------------------------------------------------------------------
+function fetchWeatherData(city, apiKey) {
+  return new Promise((resolve, reject) => {
+    const encoded = encodeURIComponent(`${city},MY`);
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encoded}&appid=${apiKey}&units=metric`;
+    https.get(url, (res) => {
+      let raw = '';
+      res.on('data', chunk => { raw += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(raw)); } catch (e) { reject(e); }
+      });
+    }).on('error', reject);
+  });
+}
+
+// Translate OpenWeatherMap English description to BM / Chinese
+const WEATHER_DESC_MAP = {
+  ms: {
+    'clear sky': 'Langit cerah', 'few clouds': 'Sedikit berawan',
+    'scattered clouds': 'Berawan berselerak', 'broken clouds': 'Berawan banyak',
+    'overcast clouds': 'Mendung', 'light rain': 'Hujan ringan',
+    'moderate rain': 'Hujan sederhana', 'heavy intensity rain': 'Hujan lebat',
+    'thunderstorm': 'Ribut petir', 'drizzle': 'Gerimis', 'mist': 'Kabus',
+    'fog': 'Kabus tebal', 'haze': 'Jerebu', 'smoke': 'Berasap',
+  },
+  zh: {
+    'clear sky': '晴天', 'few clouds': '少云', 'scattered clouds': '多云',
+    'broken clouds': '阴天', 'overcast clouds': '阴天', 'light rain': '小雨',
+    'moderate rain': '中雨', 'heavy intensity rain': '大雨',
+    'thunderstorm': '雷暴', 'drizzle': '毛毛雨', 'mist': '薄雾',
+    'fog': '浓雾', 'haze': '霾', 'smoke': '烟雾',
+  },
+};
 
 const fastProjectId = 'fyp-project-7199d';
 
@@ -53,6 +93,43 @@ const RESPONSES = {
     free: 'Free',
     dateTBA: 'Date TBA',
     locationTBA: 'Location TBA',
+
+    howToBuyTicket:
+      '🎟️ How to buy a ticket:\n1. Open the Events module\n2. Tap an event\n3. Tap "Join Event"\n\nFree events are confirmed instantly.\nPaid events proceed to PayPal checkout.',
+    cancellationPolicy:
+      '❌ Cancellation Policy:\nYou can cancel a ticket from the "My Tickets" tab.\n\n⚠️ Cancellations are NOT allowed within 3 days of the event.\nA refund will be processed if you are eligible.',
+    paymentMethod:
+      '💳 Payment Method:\nWe accept PayPal for all paid events and accommodation bookings.',
+    seatTypes:
+      '💺 Seat Types (for events with seat selection):\n• VIP (Row A) — base price + RM30\n• Premium (Row B–C) — base price + RM15\n• Standard (Row D+) — base price\n\n⏱️ Selected seats are held for 10 minutes.',
+    howToBookAccommodation:
+      '🏨 How to book accommodation:\n1. Open the Accommodation module\n2. Tap a property\n3. Tap "Book Now"\n4. Choose room type, dates & number of guests\n5. Complete payment via PayPal.',
+    viewMyTickets:
+      '🎟️ To view your tickets:\nTap the "Tickets" tab at the bottom of the Events screen.',
+    viewMyBookings:
+      '🏨 To view your accommodation bookings:\nTap the "Trips" tab at the bottom of the Accommodation screen.',
+    failedPayment:
+      '⚠️ Payment Failed?\nGo to the "My Tickets" tab → find the failed order → tap "Retry" to complete the payment.',
+    extraBed:
+      '🛏️ Extra Bed:\nYou can request an extra bed during the accommodation booking process.\nAn extra bed fee applies and varies by property.',
+    noEventByName: (name) =>
+      `Sorry, I couldn't find an event named "${name}". 🎉\n\nTry browsing by category: Food, Music, or Culture.`,
+    ticketAvailable: (name, remaining) =>
+      `✅ "${name}" still has ${remaining} ticket${remaining !== 1 ? 's' : ''} available.`,
+    ticketSoldOut: (name) =>
+      `😔 Sorry, "${name}" is sold out.`,
+    ticketNoInfo: (name) =>
+      `ℹ️ I found "${name}" but ticket availability info is not set by the organizer.`,
+    errorTicket: 'Sorry, I encountered an error checking ticket availability. Please try again.',
+    noWeatherCity: "Please specify a city for the weather. For example: 'Weather in Penang'.",
+    weatherResult: (city, desc, temp, feels, humidity, wind) =>
+      `🌤️ Weather in ${city} right now:\n\n🌡️ ${temp}°C (feels like ${feels}°C)\n💧 Humidity: ${humidity}%\n🌬️ Wind: ${wind} km/h\n☁️ ${desc}`,
+    errorWeather: (city) =>
+      `Sorry, I couldn't fetch weather for "${city}". Please check the city name and try again.`,
+    cheapestAccommodation: (name, price, city) =>
+      `🏆 Cheapest accommodation in ${city}:\n\n🏨 ${name}\n💰 RM${price}\n\nThis is the most affordable option available.`,
+    mostExpensiveAccommodation: (name, price, city) =>
+      `💎 Most expensive accommodation in ${city}:\n\n🏨 ${name}\n💰 RM${price}`,
   },
   ms: {
     noLocation: "Sila nyatakan lokasi. Contohnya, cuba 'Pulau Pinang' atau 'Kuala Lumpur'.",
@@ -73,6 +150,43 @@ const RESPONSES = {
     free: 'Percuma',
     dateTBA: 'Tarikh Belum Ditentukan',
     locationTBA: 'Lokasi Belum Ditentukan',
+
+    howToBuyTicket:
+      '🎟️ Cara membeli tiket:\n1. Buka modul Acara\n2. Ketik acara yang diminati\n3. Ketik "Join Event"\n\nAcara percuma disahkan serta-merta.\nAcara berbayar akan diteruskan ke pembayaran PayPal.',
+    cancellationPolicy:
+      '❌ Polisi Pembatalan:\nAnda boleh batalkan tiket dari tab "Tiket Saya".\n\n⚠️ Pembatalan TIDAK dibenarkan dalam masa 3 hari sebelum acara.\nBayaran balik akan diproses jika anda layak.',
+    paymentMethod:
+      '💳 Kaedah Pembayaran:\nKami menerima PayPal untuk semua acara berbayar dan tempahan penginapan.',
+    seatTypes:
+      '💺 Jenis Tempat Duduk (untuk acara dengan pilihan tempat duduk):\n• VIP (Baris A) — harga asas + RM30\n• Premium (Baris B–C) — harga asas + RM15\n• Standard (Baris D+) — harga asas\n\n⏱️ Tempat duduk ditahan selama 10 minit selepas dipilih.',
+    howToBookAccommodation:
+      '🏨 Cara menempah penginapan:\n1. Buka modul Penginapan\n2. Ketik hartanah pilihan\n3. Ketik "Book Now"\n4. Pilih jenis bilik, tarikh & bilangan tetamu\n5. Lengkapkan pembayaran melalui PayPal.',
+    viewMyTickets:
+      '🎟️ Untuk melihat tiket anda:\nKetik tab "Tickets" di bahagian bawah skrin Acara.',
+    viewMyBookings:
+      '🏨 Untuk melihat tempahan penginapan anda:\nKetik tab "Trips" di bahagian bawah skrin Penginapan.',
+    failedPayment:
+      '⚠️ Pembayaran Gagal?\nPergi ke tab "Tiket Saya" → cari pesanan yang gagal → ketik "Retry" untuk melengkapkan pembayaran.',
+    extraBed:
+      '🛏️ Katil Tambahan:\nAnda boleh meminta katil tambahan semasa proses tempahan penginapan.\nBayaran katil tambahan dikenakan dan berbeza mengikut hartanah.',
+    noEventByName: (name) =>
+      `Maaf, tiada acara bernama "${name}". 🎉\n\nCuba cari mengikut kategori: Makanan, Muzik, atau Budaya.`,
+    ticketAvailable: (name, remaining) =>
+      `✅ "${name}" masih ada ${remaining} tiket tersedia.`,
+    ticketSoldOut: (name) =>
+      `😔 Maaf, "${name}" telah habis dijual.`,
+    ticketNoInfo: (name) =>
+      `ℹ️ Acara "${name}" dijumpai tetapi maklumat tiket belum ditetapkan oleh penganjur.`,
+    errorTicket: 'Maaf, ralat berlaku semasa menyemak ketersediaan tiket. Sila cuba lagi.',
+    noWeatherCity: "Sila nyatakan bandar untuk cuaca. Contoh: 'Cuaca di Pulau Pinang'.",
+    weatherResult: (city, desc, temp, feels, humidity, wind) =>
+      `🌤️ Cuaca di ${city} sekarang:\n\n🌡️ ${temp}°C (terasa seperti ${feels}°C)\n💧 Kelembapan: ${humidity}%\n🌬️ Angin: ${wind} km/j\n☁️ ${desc}`,
+    errorWeather: (city) =>
+      `Maaf, gagal mendapatkan cuaca untuk "${city}". Sila semak nama bandar dan cuba lagi.`,
+    cheapestAccommodation: (name, price, city) =>
+      `🏆 Penginapan paling murah di ${city}:\n\n🏨 ${name}\n💰 RM${price}\n\nIni adalah pilihan paling berpatutan yang tersedia.`,
+    mostExpensiveAccommodation: (name, price, city) =>
+      `💎 Penginapan paling mahal di ${city}:\n\n🏨 ${name}\n💰 RM${price}`,
   },
   zh: {
     noLocation: "请指定位置。例如，试试「槟城」或「吉隆坡」。",
@@ -93,6 +207,43 @@ const RESPONSES = {
     free: '免费',
     dateTBA: '日期待定',
     locationTBA: '地点待定',
+
+    howToBuyTicket:
+      '🎟️ 购票方法：\n1. 打开活动模块\n2. 点击活动\n3. 点击"Join Event"\n\n免费活动即时确认。\n付费活动将进入PayPal付款流程。',
+    cancellationPolicy:
+      '❌ 取消政策：\n您可以在"我的票"标签中取消票。\n\n⚠️ 活动前3天内不允许取消。\n如符合条件，将处理退款。',
+    paymentMethod:
+      '💳 付款方式：\n我们接受PayPal付款，适用于所有付费活动和住宿预订。',
+    seatTypes:
+      '💺 座位类型（适用于提供选座的活动）：\n• VIP（A排）— 基本价 + RM30\n• Premium（B–C排）— 基本价 + RM15\n• Standard（D排以上）— 基本价\n\n⏱️ 选座后保留10分钟。',
+    howToBookAccommodation:
+      '🏨 预订住宿方法：\n1. 打开住宿模块\n2. 点击物业\n3. 点击"Book Now"\n4. 选择房型、日期和人数\n5. 通过PayPal完成付款。',
+    viewMyTickets:
+      '🎟️ 查看您的票：\n点击活动界面底部的"Tickets"标签。',
+    viewMyBookings:
+      '🏨 查看您的住宿预订：\n点击住宿界面底部的"Trips"标签。',
+    failedPayment:
+      '⚠️ 付款失败？\n前往"我的票"标签 → 找到失败的订单 → 点击"Retry"完成付款。',
+    extraBed:
+      '🛏️ 加床服务：\n您可以在住宿预订过程中申请加床。\n加床费用因物业而异。',
+    noEventByName: (name) =>
+      `抱歉，找不到名为"${name}"的活动。🎉\n\n请按类别搜索：美食、音乐或文化。`,
+    ticketAvailable: (name, remaining) =>
+      `✅ "${name}"还有${remaining}张票可购买。`,
+    ticketSoldOut: (name) =>
+      `😔 抱歉，"${name}"已售罄。`,
+    ticketNoInfo: (name) =>
+      `ℹ️ 找到活动"${name}"，但主办方尚未设置票务信息。`,
+    errorTicket: '抱歉，查询票务时遇到错误，请稍后再试。',
+    noWeatherCity: '请指定城市查询天气。例如：「槟城的天气怎样？」',
+    weatherResult: (city, desc, temp, feels, humidity, wind) =>
+      `🌤️ ${city}当前天气：\n\n🌡️ ${temp}°C（体感 ${feels}°C）\n💧 湿度：${humidity}%\n🌬️ 风速：${wind} km/h\n☁️ ${desc}`,
+    errorWeather: (city) =>
+      `抱歉，无法获取"${city}"的天气信息。请检查城市名称后重试。`,
+    cheapestAccommodation: (name, price, city) =>
+      `🏆 ${city}最便宜的住宿：\n\n🏨 ${name}\n💰 RM${price}\n\n这是目前最实惠的选择。`,
+    mostExpensiveAccommodation: (name, price, city) =>
+      `💎 ${city}最贵的住宿：\n\n🏨 ${name}\n💰 RM${price}`,
   },
 };
 
@@ -356,20 +507,81 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
   // 2. Dialogflow locale header
   // 3. Text-based detection from the query itself
   const queryText = (request.body && request.body.queryResult && request.body.queryResult.queryText) || '';
-  const payloadUiLang =
+  const payloadFields =
     request.body &&
     request.body.originalDetectIntentRequest &&
     request.body.originalDetectIntentRequest.payload &&
-    request.body.originalDetectIntentRequest.payload.fields &&
-    request.body.originalDetectIntentRequest.payload.fields.uiLang &&
-    request.body.originalDetectIntentRequest.payload.fields.uiLang.stringValue;
+    request.body.originalDetectIntentRequest.payload.fields;
+
+  const payloadUiLang = payloadFields && payloadFields.uiLang && payloadFields.uiLang.stringValue;
+  const nearbyCity    = payloadFields && payloadFields.nearbyCity && payloadFields.nearbyCity.stringValue;
+
   const lang = mapUiLang(payloadUiLang) || getLang(agent.locale, queryText);
   const R = RESPONSES[lang] || RESPONSES.en;
+
+  // Words that Dialogflow may incorrectly extract as a location entity but are
+  // actually English function/stop words with no geographic meaning.
+  const INVALID_LOCATION_WORDS = new Set([
+    'do', 'i', 'me', 'my', 'a', 'an', 'the', 'in', 'at', 'to', 'for', 'of',
+    'how', 'what', 'where', 'when', 'why', 'can', 'could', 'would', 'should',
+    'book', 'find', 'get', 'show', 'tell', 'help', 'any', 'some', 'please',
+    'hotel', 'accommodation', 'accommodations', 'place', 'places', 'here', 'there',
+  ]);
+
+  // Returns 'cheapest' | 'expensive' | null depending on price intent in query.
+  function detectPriceIntent(text) {
+    const lower = (text || '').toLowerCase();
+    const cheapPatterns = [
+      /\b(cheap|cheapest|lowest\s+price|most\s+affordable|budget|affordable|inexpensive|best\s+deal|best\s+value|value\s+for\s+money)\b/i,
+      /\b(murah|paling\s+murah|harga\s+terendah|berpatutan|jimat)\b/i,
+      /(最便宜|最低价|便宜|实惠|划算|经济)/,
+    ];
+    const expensivePatterns = [
+      /\b(expensive|most\s+expensive|highest\s+price|luxury|premium|priciest)\b/i,
+      /\b(mahal|paling\s+mahal|harga\s+tertinggi|mewah)\b/i,
+      /(最贵|最高价|最豪华)/,
+    ];
+    if (cheapPatterns.some(p => p.test(text))) return 'cheapest';
+    if (expensivePatterns.some(p => p.test(text))) return 'expensive';
+    return null;
+  }
+
+  // Returns true when the raw query is asking HOW to book (not searching by city).
+  function isHowToBookQuery(text) {
+    const lower = (text || '').toLowerCase();
+    return (
+      /how\s+(do\s+i|to|can\s+i|should\s+i)\s+(book|reserve|make\s+a\s+booking)/i.test(lower) ||
+      /steps?\s+(to|for)\s+book/i.test(lower) ||
+      lower === 'book accommodation' ||
+      lower === 'book a hotel'
+    );
+  }
+
+  // Returns true when the raw query is asking about weather/forecast.
+  function isWeatherQuery(text) {
+    const lower = (text || '').toLowerCase();
+    return /\b(weather|forecast|temperature|rain|sunny|humid|hot|cold|climate)\b/i.test(lower) ||
+           /\b(cuaca|suhu|ramalan|hujan|panas|sejuk|iklim)\b/i.test(lower) ||
+           /[\u4e00-\u9fff]/.test(text) && /(天气|气温|预报|下雨|晴天|温度|气候)/.test(text);
+  }
 
   // -------------------------------------------------------------------------
   // Accommodation intent handler
   // -------------------------------------------------------------------------
   async function handleAccommodation(agent) {
+    // Dialogflow often misfires "weather in <city>" to this intent because it
+    // finds a location entity. Redirect to the weather handler instead.
+    if (isWeatherQuery(queryText)) {
+      return handleWeather(agent);
+    }
+
+    // If the raw query is really a "how to book" question, serve the FAQ answer
+    // directly — Dialogflow sometimes misfires and routes these to this intent.
+    if (isHowToBookQuery(queryText)) {
+      agent.add(R.howToBookAccommodation);
+      return;
+    }
+
     let city = agent.parameters['location'];
 
     // Always try to extract location from raw query text first — it is more
@@ -381,8 +593,13 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
     } else {
       // Fall back to the Dialogflow parameter value
       if (!city) {
-        agent.add(R.noLocation);
-        return;
+        // Last resort: use the user's detected nearby city
+        if (nearbyCity) {
+          city = nearbyCity;
+        } else {
+          agent.add(R.noLocation);
+          return;
+        }
       }
 
       // Handle case where Dialogflow returns a geo-city structured object
@@ -399,14 +616,18 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
 
       city = normalizeLocationName(city);
 
-      if (!city) {
+      // Reject city values that are common English stop/function words — these
+      // are extraction artefacts (e.g. "do" from "How do I book…").
+      if (!city || INVALID_LOCATION_WORDS.has(city.toLowerCase())) {
         agent.add(R.noLocation);
         return;
       }
     }
 
+    const priceIntent = detectPriceIntent(queryText);
+
     try {
-      console.log(`[Accommodation Search] City: ${city} | Lang: ${lang}`);
+      console.log(`[Accommodation Search] City: ${city} | Lang: ${lang} | PriceIntent: ${priceIntent}`);
 
       const accommodationRef = db.collection('accommodations');
       let snapshot = await accommodationRef.where('location', '==', city).get();
@@ -429,7 +650,7 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
           return;
         }
 
-        formatAndSendResponse(agent, city, matches, lang, R);
+        formatAndSendResponse(agent, city, matches, lang, R, priceIntent);
         return;
       }
 
@@ -437,7 +658,7 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
       snapshot.forEach(doc => accommodations.push(doc.data()));
 
       console.log(`[Accommodation Search] Found ${accommodations.length} results`);
-      formatAndSendResponse(agent, city, accommodations, lang, R);
+      formatAndSendResponse(agent, city, accommodations, lang, R, priceIntent);
 
     } catch (error) {
       console.error("[Accommodation Search Error]:", error.message, error.stack);
@@ -494,11 +715,27 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
   // -------------------------------------------------------------------------
   // Format accommodation response
   // -------------------------------------------------------------------------
-  function formatAndSendResponse(agent, city, accommodations, lang, R) {
-    const MAX_RESULTS = 5;
-
+  function formatAndSendResponse(agent, city, accommodations, lang, R, priceIntent = null) {
+    // Sort ascending by price first (cheapest first)
     accommodations.sort((a, b) => (parseFloat(a.price) || 0) - (parseFloat(b.price) || 0));
 
+    // If user asked for cheapest / most expensive, answer directly
+    if (priceIntent === 'cheapest') {
+      const best = accommodations[0];
+      if (best && best.price) {
+        agent.add(R.cheapestAccommodation(best.name || 'Hotel', best.price, city));
+        return;
+      }
+    }
+    if (priceIntent === 'expensive') {
+      const best = accommodations[accommodations.length - 1];
+      if (best && best.price) {
+        agent.add(R.mostExpensiveAccommodation(best.name || 'Hotel', best.price, city));
+        return;
+      }
+    }
+
+    const MAX_RESULTS = 5;
     const totalCount = accommodations.length;
     const displayAccommodations = accommodations.slice(0, MAX_RESULTS);
 
@@ -507,8 +744,9 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
     displayAccommodations.forEach((data, index) => {
       const name = data.name || 'Hotel';
       const price = data.price ? `RM${data.price}` : R.priceNA;
-
-      responseText += `${index + 1}. ${name}\n`;
+      // Highlight the cheapest with a trophy
+      const prefix = index === 0 ? '🏆 ' : '';
+      responseText += `${index + 1}. ${prefix}${name}\n`;
       responseText += `   💰 ${price}\n\n`;
     });
 
@@ -556,9 +794,141 @@ exports.dialogflowFirebaseFulfillment = functions.https.onRequest((request, resp
     agent.add(responseText.trim());
   }
 
+  // -------------------------------------------------------------------------
+  // Weather intent handler — calls OpenWeatherMap API
+  // -------------------------------------------------------------------------
+  async function handleWeather(agent) {
+    const apiKey = process.env.OPENWEATHER_API_KEY;
+    if (!apiKey || apiKey === 'YOUR_OPENWEATHERMAP_API_KEY_HERE') {
+      agent.add('⚠️ Weather service is not configured yet. Please contact the app developer.');
+      return;
+    }
+
+    // Resolve city: Dialogflow entity → raw text extraction → nearby city fallback
+    let city = agent.parameters['location'] || null;
+    if (typeof city === 'object' && city !== null && !Array.isArray(city)) {
+      city = city['city'] || city['name'] || city['original'] || null;
+    }
+    if (Array.isArray(city)) city = city[0] || null;
+
+    const cityFromText = extractLocationFromText(queryText);
+    if (cityFromText) city = cityFromText;
+
+    if (!city && nearbyCity) city = nearbyCity;
+
+    if (!city) {
+      agent.add(R.noWeatherCity);
+      return;
+    }
+
+    city = normalizeLocationName(city);
+
+    try {
+      console.log(`[Weather] City: ${city} | Lang: ${lang}`);
+      const data = await fetchWeatherData(city, apiKey);
+
+      if (data.cod !== 200) {
+        console.log(`[Weather] API error: ${data.message}`);
+        agent.add(R.errorWeather(city));
+        return;
+      }
+
+      const temp     = Math.round(data.main.temp);
+      const feels    = Math.round(data.main.feels_like);
+      const humidity = data.main.humidity;
+      const windKmh  = Math.round((data.wind.speed || 0) * 3.6);
+      const descEn   = (data.weather[0].description || '').toLowerCase();
+      const desc     = (WEATHER_DESC_MAP[lang] && WEATHER_DESC_MAP[lang][descEn]) || descEn;
+
+      agent.add(R.weatherResult(city, desc, temp, feels, humidity, windKmh));
+    } catch (error) {
+      console.error('[Weather Error]:', error.message);
+      agent.add(R.errorWeather(city));
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Static FAQ handlers — no Firestore query needed
+  // -------------------------------------------------------------------------
+  function handleHowToBuyTicket(agent)        { agent.add(R.howToBuyTicket); }
+  function handleCancellationPolicy(agent)    { agent.add(R.cancellationPolicy); }
+  function handlePaymentMethod(agent)         { agent.add(R.paymentMethod); }
+  function handleSeatTypes(agent)             { agent.add(R.seatTypes); }
+  function handleHowToBookAccommodation(agent){ agent.add(R.howToBookAccommodation); }
+  function handleViewMyTickets(agent)         { agent.add(R.viewMyTickets); }
+  function handleViewMyBookings(agent)        { agent.add(R.viewMyBookings); }
+  function handleFailedPayment(agent)         { agent.add(R.failedPayment); }
+  function handleExtraBed(agent)              { agent.add(R.extraBed); }
+
+  // -------------------------------------------------------------------------
+  // Live Firestore handler — check ticket availability by event name
+  // -------------------------------------------------------------------------
+  async function handleTicketAvailability(agent) {
+    const eventName = agent.parameters['event-name'] || queryText;
+    if (!eventName || !eventName.trim()) {
+      agent.add(R.noEventType);
+      return;
+    }
+    try {
+      const snapshot = await db.collection('Event').get();
+      const lower = eventName.toLowerCase();
+      let match = null;
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        const name = (d.Name || d.name || '').toLowerCase();
+        if (name.includes(lower) || lower.includes(name)) {
+          match = d;
+        }
+      });
+      if (!match) {
+        agent.add(R.noEventByName(eventName));
+        return;
+      }
+      const remaining = match.TicketsRemaining != null ? match.TicketsRemaining : match.ticketsRemaining;
+      const displayName = match.Name || match.name || eventName;
+      if (remaining == null) {
+        agent.add(R.ticketNoInfo(displayName));
+      } else if (Number(remaining) <= 0) {
+        agent.add(R.ticketSoldOut(displayName));
+      } else {
+        agent.add(R.ticketAvailable(displayName, Number(remaining)));
+      }
+    } catch (error) {
+      console.error('[TicketAvailability Error]:', error.message);
+      agent.add(R.errorTicket);
+    }
+  }
+
   let intentMap = new Map();
   intentMap.set('Accommodation', handleAccommodation);
   intentMap.set('Event', handleEvent);
+  intentMap.set('HowToBuyTicket',           handleHowToBuyTicket);
+  intentMap.set('CancellationPolicy',       handleCancellationPolicy);
+  intentMap.set('PaymentMethod',            handlePaymentMethod);
+  intentMap.set('SeatTypes',                handleSeatTypes);
+  intentMap.set('HowToBookAccommodation',   handleHowToBookAccommodation);
+  intentMap.set('ViewMyTickets',            handleViewMyTickets);
+  intentMap.set('ViewMyBookings',           handleViewMyBookings);
+  intentMap.set('FailedPayment',            handleFailedPayment);
+  intentMap.set('ExtraBed',                 handleExtraBed);
+  intentMap.set('TicketAvailability',       handleTicketAvailability);
+  intentMap.set('WeatherQuery',             handleWeather);
+
+  // Default Fallback — try to handle weather queries that Dialogflow couldn't
+  // match to any intent, otherwise return a helpful generic message.
+  async function handleFallback(agent) {
+    if (isWeatherQuery(queryText)) {
+      return handleWeather(agent);
+    }
+    const fallback = {
+      en: "Sorry, I didn't understand that. Try asking about:\n• 🌤️ Weather in a city\n• 🏨 Accommodation\n• 🎉 Events\n• 🎟️ Tickets or cancellation policy",
+      ms: "Maaf, saya tidak faham. Cuba tanya tentang:\n• 🌤️ Cuaca di sesebuah bandar\n• 🏨 Penginapan\n• 🎉 Acara\n• 🎟️ Tiket atau polisi pembatalan",
+      zh: "抱歉，我没有理解您的问题。请尝试询问：\n• 🌤️ 某城市天气\n• 🏨 住宿\n• 🎉 活动\n• 🎟️ 票务或取消政策",
+    };
+    agent.add(fallback[lang] || fallback.en);
+  }
+
+  intentMap.set('Default Fallback Intent', handleFallback);
 
   return agent.handleRequest(intentMap);
 });

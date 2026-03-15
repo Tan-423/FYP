@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -27,6 +28,10 @@ class _BusSchedulePageState extends State<BusSchedulePage> {
   String? _preferredOperator;
   bool _isLoadingPreferences = true;
 
+  // --- PRIMARY SEATS (authoritative source from primary Firebase) ---
+  Map<String, Set<String>> _primarySeatsMap = {};
+  StreamSubscription<QuerySnapshot>? _primarySeatsSubscription;
+
   final Set<String> _validSeats = {
     '1A', '1B', '1C', '1D',
     '2A', '2B', '2C', '2D',
@@ -42,6 +47,34 @@ class _BusSchedulePageState extends State<BusSchedulePage> {
     String todayFormatted = "${now.year}-${now.month}-${now.day}";
     _dateController.text = todayFormatted;
     _initFirestore(todayFormatted);
+    _listenToPrimarySeats();
+  }
+
+  @override
+  void dispose() {
+    _primarySeatsSubscription?.cancel();
+    _fromController.dispose();
+    _toController.dispose();
+    _dateController.dispose();
+    super.dispose();
+  }
+
+  /// Listens to the primary Firebase project's bus_seats collection.
+  /// This is the authoritative source for booked seats since secondary
+  /// project writes can fail silently due to Firestore security rules.
+  void _listenToPrimarySeats() {
+    _primarySeatsSubscription = FirebaseFirestore.instance
+        .collection('bus_seats')
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+      final map = <String, Set<String>>{};
+      for (var doc in snapshot.docs) {
+        final raw = (doc.data()['bookedSeats'] as List<dynamic>?) ?? [];
+        map[doc.id] = raw.map((s) => s.toString()).toSet();
+      }
+      setState(() => _primarySeatsMap = map);
+    });
   }
 
   Future<void> _initFirestore(String todayFormatted) async {
@@ -301,6 +334,9 @@ class _BusSchedulePageState extends State<BusSchedulePage> {
 
                           List<dynamic> rawBookedList = data['bookedSeats'] ?? [];
                           Set<String> uniqueBookedSeats = rawBookedList.map((e) => e.toString()).toSet();
+                          // Merge with primary Firebase seats (authoritative source)
+                          Set<String> primarySeats = _primarySeatsMap[doc.id] ?? {};
+                          uniqueBookedSeats = uniqueBookedSeats.union(primarySeats);
                           int actualBookedCount = uniqueBookedSeats.intersection(_validSeats).length;
                           int remainingSeats = 20 - actualBookedCount;
 
@@ -419,6 +455,7 @@ class _BusSchedulePageState extends State<BusSchedulePage> {
           busId: busId,
           busName: name,
           price: price,
+          travelDate: travelDate,
         )));
       },
       child: Stack(

@@ -1159,6 +1159,11 @@ mixin EventManagementViews
                     onPressed: _openProfile,
                     icon: const Icon(Icons.person_outline),
                   ),
+                  IconButton(
+                    onPressed: _openQrScanner,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    tooltip: 'Scan Ticket',
+                  ),
                   ElevatedButton.icon(
                     onPressed: _startNewEvent,
                     icon: const Icon(Icons.add),
@@ -1422,7 +1427,7 @@ mixin EventManagementViews
               ],
             ),
           ),
-          _buildQrPlaceholder(ticket.ticketId),
+          _buildQrCode(ticket),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Row(
@@ -1503,41 +1508,46 @@ mixin EventManagementViews
     return '$preview +$remaining';
   }
 
-  Widget _buildQrPlaceholder(String value) {
+  Widget _buildQrCode(TicketModel ticket) {
+    final qrData = jsonEncode({
+      'ticketId': ticket.ticketId,
+      'event': ticket.event.name,
+      'date': ticket.event.date,
+      'location': ticket.event.location,
+      'price': ticket.event.price,
+      'purchaseDate': ticket.purchaseDate,
+      'status': ticket.status,
+      'seats': ticket.seatIds,
+      'seatTypes': ticket.seatTypes,
+      'seatCount': ticket.seatCount,
+    });
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           Container(
-            width: 160,
-            height: 160,
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
+              color: Colors.white,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE5E7EB), width: 1),
             ),
-            child: GridView.builder(
-              itemCount: 25,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 5,
-                mainAxisSpacing: 2,
-                crossAxisSpacing: 2,
+            padding: const EdgeInsets.all(8),
+            child: QrImageView(
+              data: qrData,
+              version: QrVersions.auto,
+              size: 160,
+              backgroundColor: Colors.white,
+              errorStateBuilder: (ctx, err) => const SizedBox(
+                width: 160,
+                height: 160,
+                child: Center(child: Text('QR Error')),
               ),
-              itemBuilder: (context, index) {
-                final random = Random(index + value.hashCode);
-                return Container(
-                  decoration: BoxDecoration(
-                    color:
-                        random.nextBool() ? Colors.black : Colors.transparent,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                );
-              },
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            value,
+            ticket.ticketId,
             style: const TextStyle(
               fontSize: 12,
               letterSpacing: 2,
@@ -1547,6 +1557,12 @@ mixin EventManagementViews
           ),
         ],
       ),
+    );
+  }
+
+  void _openQrScanner() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const _QrScannerScreen()),
     );
   }
 
@@ -2112,6 +2128,304 @@ mixin EventManagementViews
               fontSize: 11,
               fontWeight: FontWeight.w600,
               color: isActive ? Colors.blue : Colors.black38,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QrScannerScreen extends StatefulWidget {
+  const _QrScannerScreen();
+
+  @override
+  State<_QrScannerScreen> createState() => _QrScannerScreenState();
+}
+
+class _QrScannerScreenState extends State<_QrScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController();
+  bool _hasScanned = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_hasScanned) return;
+    final barcode = capture.barcodes.firstOrNull;
+    if (barcode == null || barcode.rawValue == null) return;
+
+    setState(() => _hasScanned = true);
+    _controller.stop();
+
+    final raw = barcode.rawValue!;
+    Map<String, dynamic>? data;
+    try {
+      data = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      data = null;
+    }
+
+    _showTicketInfoDialog(raw, data);
+  }
+
+  void _showTicketInfoDialog(String raw, Map<String, dynamic>? data) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TicketInfoSheet(raw: raw, data: data),
+    ).then((_) {
+      if (mounted) {
+        setState(() => _hasScanned = false);
+        _controller.start();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Scan Ticket QR'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
+            tooltip: 'Toggle Torch',
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+          ),
+          Center(
+            child: Container(
+              width: 260,
+              height: 260,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.blue, width: 3),
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Point camera at ticket QR code',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TicketInfoSheet extends StatelessWidget {
+  const _TicketInfoSheet({required this.raw, required this.data});
+
+  final String raw;
+  final Map<String, dynamic>? data;
+
+  @override
+  Widget build(BuildContext context) {
+    final isValid = data != null && data!.containsKey('ticketId');
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.4,
+      maxChildSize: 0.9,
+      builder: (_, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            if (!isValid)
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Invalid QR Code',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        'This QR code does not contain valid ticket data.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _statusColor(data!['status'] as String? ?? '').withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            (data!['status'] as String? ?? 'UNKNOWN').toUpperCase(),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: _statusColor(data!['status'] as String? ?? ''),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      data!['event'] as String? ?? '',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _infoRow(Icons.confirmation_number_outlined, 'Ticket ID', data!['ticketId'] as String? ?? ''),
+                    _infoRow(Icons.calendar_today, 'Event Date', data!['date'] as String? ?? ''),
+                    _infoRow(Icons.location_on_outlined, 'Location', data!['location'] as String? ?? ''),
+                    _infoRow(
+                      Icons.attach_money,
+                      'Price',
+                      () {
+                        final price = data!['price'];
+                        if (price == null) return 'N/A';
+                        final p = price is num ? price.toDouble() : double.tryParse(price.toString()) ?? 0.0;
+                        return p > 0 ? 'RM ${p.toStringAsFixed(2)}' : 'FREE';
+                      }(),
+                    ),
+                    _infoRow(Icons.date_range, 'Purchase Date', data!['purchaseDate'] as String? ?? ''),
+                    if ((data!['seats'] as List?)?.isNotEmpty == true)
+                      _infoRow(
+                        Icons.event_seat_outlined,
+                        'Seat(s)',
+                        (data!['seats'] as List).join(', '),
+                      ),
+                    if ((data!['seatTypes'] as List?)?.isNotEmpty == true)
+                      _infoRow(
+                        Icons.star_outline,
+                        'Seat Type(s)',
+                        (data!['seatTypes'] as List).join(', '),
+                      ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Scan Another Ticket'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _statusColor(String status) {
+    switch (status.trim().toUpperCase()) {
+      case 'ACTIVE':
+        return Colors.green;
+      case 'CANCELLED':
+        return Colors.red;
+      case 'PENDING_SEAT':
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

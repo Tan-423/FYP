@@ -142,15 +142,15 @@ mixin EventManagementActions on State<EventManagementScreen> {
         .where('UserId', whereIn: userIds.toList())
         .snapshots()
         .map((snapshot) {
-      final tickets = <TicketModel>[];
-      for (final doc in snapshot.docs) {
-        final ticket = _ticketFromDoc(doc);
-        if (ticket != null) {
-          tickets.add(ticket);
-        }
-      }
-      return tickets;
-    });
+          final tickets = <TicketModel>[];
+          for (final doc in snapshot.docs) {
+            final ticket = _ticketFromDoc(doc);
+            if (ticket != null) {
+              tickets.add(ticket);
+            }
+          }
+          return tickets;
+        });
   }
 
   Stream<List<PaymentRecord>> _failedPaymentsStream() {
@@ -2003,9 +2003,7 @@ ${rows.join()}
               _asString(normalized['seateventid']) ??
               _asString(raw['SeatEventId']) ??
               seatEventId;
-          if (seatTotal == null) {
-            seatTotal = _asDouble(normalized['amount'] ?? raw['Amount']);
-          }
+          seatTotal ??= _asDouble(normalized['amount'] ?? raw['Amount']);
           debugPrint(
             '🎫 _capturePayPalOrder: final seatIds after reading payment doc = $seatIds',
           );
@@ -2241,7 +2239,11 @@ ${rows.join()}
     if (eventDate != null) {
       final today = DateTime.now();
       final todayOnly = DateTime(today.year, today.month, today.day);
-      final eventOnly = DateTime(eventDate.year, eventDate.month, eventDate.day);
+      final eventOnly = DateTime(
+        eventDate.year,
+        eventDate.month,
+        eventDate.day,
+      );
       final daysUntilEvent = eventOnly.difference(todayOnly).inDays;
       if (daysUntilEvent < 3) {
         _showNotification(
@@ -2399,10 +2401,7 @@ ${rows.join()}
     // Block deletion if any tickets have already been sold for this event.
     try {
       final ticketSnapshot =
-          await _ticketsRef
-              .where('EventId', isEqualTo: eventId)
-              .limit(1)
-              .get();
+          await _ticketsRef.where('EventId', isEqualTo: eventId).limit(1).get();
       if (ticketSnapshot.docs.isNotEmpty) {
         _showNotification(
           'Cannot delete: tickets have already been sold for this event.',
@@ -2555,29 +2554,29 @@ ${rows.join()}
     if (_isPublishing) {
       return;
     }
-    
+
     // Validate required fields
     final title = _titleController.text.trim();
     final location = _locationController.text.trim();
     final priceText = _priceController.text.trim();
     final ticketTotalText = _ticketTotalController.text.trim();
-    
+
     // Check for empty required fields
     if (title.isEmpty) {
       _showNotification('Event title is required.', isError: true);
       return;
     }
-    
+
     if (location.isEmpty) {
       _showNotification('Location is required.', isError: true);
       return;
     }
-    
+
     if (_newEventDate.isEmpty) {
       _showNotification('Event date is required.', isError: true);
       return;
     }
-    
+
     // Validate that title and location don't contain numbers
     if (RegExp(r'\d').hasMatch(title)) {
       _showNotification(
@@ -2586,26 +2585,20 @@ ${rows.join()}
       );
       return;
     }
-    
+
     if (RegExp(r'\d').hasMatch(location)) {
-      _showNotification(
-        'Location should not contain numbers.',
-        isError: true,
-      );
+      _showNotification('Location should not contain numbers.', isError: true);
       return;
     }
-    
+
     // Validate price field contains only numbers
     if (priceText.isNotEmpty && !RegExp(r'^[0-9.]+$').hasMatch(priceText)) {
-      _showNotification(
-        'Price must contain only numbers.',
-        isError: true,
-      );
+      _showNotification('Price must contain only numbers.', isError: true);
       return;
     }
-    
+
     // Validate total tickets contains only numbers
-    if (ticketTotalText.isNotEmpty && 
+    if (ticketTotalText.isNotEmpty &&
         !RegExp(r'^[0-9]+$').hasMatch(ticketTotalText)) {
       _showNotification(
         'Total tickets must contain only numbers.',

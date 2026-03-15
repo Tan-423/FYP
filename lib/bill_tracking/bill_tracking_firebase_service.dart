@@ -11,11 +11,12 @@ class BillTrackingFirebaseService {
 
   // ==================== GROUPS ====================
 
-  /// Get all groups as a stream (real-time updates)
-  Stream<List<BillGroup>> getGroupsStream(String ownerId) {
+  /// Get all groups where [userId] is a member (owner or invited member).
+  /// Uses the flat [memberIds] array stored on each group document.
+  Stream<List<BillGroup>> getGroupsStream(String userId) {
     return _firestore
         .collection(_groupsCollection)
-        .where('ownerId', isEqualTo: ownerId)
+        .where('memberIds', arrayContains: userId)
         .snapshots()
         .map((snapshot) {
           final groups =
@@ -27,12 +28,12 @@ class BillTrackingFirebaseService {
         });
   }
 
-  /// Get all groups once
-  Future<List<BillGroup>> getGroups(String ownerId) async {
+  /// Get all groups where [userId] is a member (one-time fetch).
+  Future<List<BillGroup>> getGroups(String userId) async {
     final snapshot =
         await _firestore
             .collection(_groupsCollection)
-            .where('ownerId', isEqualTo: ownerId)
+            .where('memberIds', arrayContains: userId)
             .get();
     final groups =
         snapshot.docs.map((doc) => BillGroup.fromMap(doc.data())).toList();
@@ -75,12 +76,12 @@ class BillTrackingFirebaseService {
 
   // ==================== BILLS ====================
 
-  /// Get all bills for a specific group as a stream (real-time updates)
-  Stream<List<BillModel>> getBillsStream(String groupId, String ownerId) {
+  /// Get all bills for a specific group as a stream (real-time updates).
+  /// Access control is at group level — all group members can see all bills.
+  Stream<List<BillModel>> getBillsStream(String groupId) {
     return _firestore
         .collection(_billsCollection)
         .where('groupId', isEqualTo: groupId)
-        .where('ownerId', isEqualTo: ownerId)
         .snapshots()
         .map((snapshot) {
           final bills =
@@ -92,13 +93,12 @@ class BillTrackingFirebaseService {
         });
   }
 
-  /// Get all bills for a specific group once
-  Future<List<BillModel>> getBills(String groupId, String ownerId) async {
+  /// Get all bills for a specific group once.
+  Future<List<BillModel>> getBills(String groupId) async {
     final snapshot =
         await _firestore
             .collection(_billsCollection)
             .where('groupId', isEqualTo: groupId)
-            .where('ownerId', isEqualTo: ownerId)
             .get();
     final bills =
         snapshot.docs.map((doc) => BillModel.fromMap(doc.data())).toList();
@@ -123,14 +123,23 @@ class BillTrackingFirebaseService {
   }
 
   /// Get a specific bill by ID
-  Future<BillModel?> getBill(String billId, {String? ownerId}) async {
+  Future<BillModel?> getBill(String billId) async {
     final doc = await _firestore.collection(_billsCollection).doc(billId).get();
     if (!doc.exists) return null;
-    final bill = BillModel.fromMap(doc.data()!);
-    if (ownerId != null && bill.ownerId != ownerId) {
-      return null;
-    }
-    return bill;
+    return BillModel.fromMap(doc.data()!);
+  }
+
+  /// Lookup a user in Firestore by their display name (case-sensitive prefix).
+  /// Returns matching user records from the [users] collection.
+  Future<List<Map<String, dynamic>>> searchUsersByName(String query) async {
+    if (query.trim().isEmpty) return [];
+    final snapshot = await _firestore
+        .collection('users')
+        .where('fullName', isGreaterThanOrEqualTo: query.trim())
+        .where('fullName', isLessThanOrEqualTo: '${query.trim()}\uf8ff')
+        .limit(10)
+        .get();
+    return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
   /// Create a new bill
@@ -155,12 +164,11 @@ class BillTrackingFirebaseService {
   }
 
   /// Delete all bills for a specific group (useful when deleting a group)
-  Future<void> deleteBillsByGroup(String groupId, String ownerId) async {
+  Future<void> deleteBillsByGroup(String groupId) async {
     final snapshot =
         await _firestore
             .collection(_billsCollection)
             .where('groupId', isEqualTo: groupId)
-            .where('ownerId', isEqualTo: ownerId)
             .get();
 
     final batch = _firestore.batch();

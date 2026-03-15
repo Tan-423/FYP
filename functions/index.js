@@ -1,5 +1,8 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret, defineString } = require("firebase-functions/params");
+const https = require("https");
+
+const openWeatherApiKey = defineString("OPENWEATHER_API_KEY", { default: "" });
 
 const paypalClientId = defineSecret("PAYPAL_CLIENT_ID");
 const paypalClientSecret = defineSecret("PAYPAL_CLIENT_SECRET");
@@ -158,6 +161,82 @@ exports.paypalCancel = onRequest((req, res) => {
         "<p>You can return to the app to try again.</p>" +
         "</body></html>"
     );
+});
+
+// ---------------------------------------------------------------------------
+// Weather endpoint — called directly from Flutter, bypasses Dialogflow routing
+// GET /getWeather?city=Penang&lang=en
+// ---------------------------------------------------------------------------
+const WEATHER_DESCRIPTIONS = {
+  ms: {
+    'clear sky': 'Langit cerah', 'few clouds': 'Sedikit berawan',
+    'scattered clouds': 'Berawan berselerak', 'broken clouds': 'Berawan banyak',
+    'overcast clouds': 'Mendung', 'light rain': 'Hujan ringan',
+    'moderate rain': 'Hujan sederhana', 'heavy intensity rain': 'Hujan lebat',
+    'thunderstorm': 'Ribut petir', 'drizzle': 'Gerimis', 'mist': 'Kabus',
+    'fog': 'Kabus tebal', 'haze': 'Jerebu', 'smoke': 'Berasap',
+  },
+  zh: {
+    'clear sky': '晴天', 'few clouds': '少云', 'scattered clouds': '多云',
+    'broken clouds': '阴天', 'overcast clouds': '阴天', 'light rain': '小雨',
+    'moderate rain': '中雨', 'heavy intensity rain': '大雨',
+    'thunderstorm': '雷暴', 'drizzle': '毛毛雨', 'mist': '薄雾',
+    'fog': '浓雾', 'haze': '霾', 'smoke': '烟雾',
+  },
+};
+
+function fetchOwm(city, apiKey) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city + ',MY')}&appid=${apiKey}&units=metric`;
+    https.get(url, (res) => {
+      let raw = '';
+      res.on('data', c => { raw += c; });
+      res.on('end', () => { try { resolve(JSON.parse(raw)); } catch (e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+exports.getWeather = onRequest(async (req, res) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+
+  const city = req.query.city || (req.body && req.body.city);
+  const lang = req.query.lang || 'en';
+
+  if (!city) {
+    res.status(400).json({ error: 'city parameter is required' });
+    return;
+  }
+
+  const apiKey = openWeatherApiKey.value();
+  if (!apiKey || apiKey === 'YOUR_OPENWEATHERMAP_API_KEY_HERE') {
+    res.status(503).json({ error: 'Weather service not configured' });
+    return;
+  }
+
+  try {
+    const data = await fetchOwm(city, apiKey);
+    if (data.cod !== 200) {
+      res.status(404).json({ error: `City not found: ${city}` });
+      return;
+    }
+
+    const descEn   = (data.weather[0].description || '').toLowerCase();
+    const langMap  = WEATHER_DESCRIPTIONS[lang === 'bm' ? 'ms' : lang === 'cn' ? 'zh' : 'en'];
+    const desc     = (langMap && langMap[descEn]) || descEn;
+
+    res.json({
+      city:        data.name,
+      temp:        Math.round(data.main.temp),
+      feels_like:  Math.round(data.main.feels_like),
+      humidity:    data.main.humidity,
+      wind_kmh:    Math.round((data.wind.speed || 0) * 3.6),
+      description: desc,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Import Dialogflow chatbot fulfillment

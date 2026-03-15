@@ -9,6 +9,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:math' show cos, sqrt, asin, pi;
@@ -146,13 +148,14 @@ class _NearbyCarsScreenState extends State<NearbyCarsScreen>
         _updateDistancesAndRefresh();
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Location not found."),
             backgroundColor: Colors.redAccent,
           ),
         );
+      }
     }
   }
 
@@ -204,13 +207,14 @@ class _NearbyCarsScreenState extends State<NearbyCarsScreen>
 
     List<CarModel> temp = uniqueCars.values.toList();
 
-    if (_currentTypeFilter != 'All')
+    if (_currentTypeFilter != 'All') {
       temp =
           temp.where((car) => car.type.contains(_currentTypeFilter)).toList();
+    }
 
-    if (_currentSort == 'Price: Low to High')
+    if (_currentSort == 'Price: Low to High') {
       temp.sort((a, b) => a.price.compareTo(b.price));
-    else if (_currentSort == 'Price: High to Low')
+    } else if (_currentSort == 'Price: High to Low')
       temp.sort((a, b) => b.price.compareTo(a.price));
     else
       temp.sort((a, b) => a.distanceFromUser.compareTo(b.distanceFromUser));
@@ -455,7 +459,7 @@ class _NearbyCarsScreenState extends State<NearbyCarsScreen>
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              ...uniqueTypes.map((type) => _buildTypeTile(type)).toList(),
+              ...uniqueTypes.map((type) => _buildTypeTile(type)),
             ],
           ),
         );
@@ -983,7 +987,7 @@ class _CarCard extends StatelessWidget {
   });
 
   Widget _buildImage() {
-    if (car.imageUrl.startsWith('http'))
+    if (car.imageUrl.startsWith('http')) {
       return Image.network(
         car.imageUrl,
         width: 96,
@@ -991,6 +995,7 @@ class _CarCard extends StatelessWidget {
         fit: BoxFit.cover,
         errorBuilder: (c, e, s) => Container(color: Colors.grey[200]),
       );
+    }
     if (car.imageUrl.isNotEmpty) {
       try {
         return Image.memory(
@@ -1312,12 +1317,13 @@ class _CarAvailabilityScreenState extends State<CarAvailabilityScreen> {
   }
 
   Widget _buildDynamicImage(String imageString) {
-    if (imageString.startsWith('http'))
+    if (imageString.startsWith('http')) {
       return Image.network(
         imageString,
         fit: BoxFit.cover,
         errorBuilder: (c, e, s) => Container(color: Colors.grey[200]),
       );
+    }
     if (imageString.isNotEmpty) {
       try {
         return Image.memory(
@@ -2274,10 +2280,12 @@ class _CarRentalPaymentScreenState extends State<CarRentalPaymentScreen> {
       if (placemarks.isNotEmpty) {
         Placemark place = placemarks.first;
         List<String> parts = [];
-        if (place.street != null && place.street!.isNotEmpty)
+        if (place.street != null && place.street!.isNotEmpty) {
           parts.add(place.street!);
-        if (place.locality != null && place.locality!.isNotEmpty)
+        }
+        if (place.locality != null && place.locality!.isNotEmpty) {
           parts.add(place.locality!);
+        }
         setState(() {
           _carAddress =
               parts.isNotEmpty
@@ -2296,12 +2304,13 @@ class _CarRentalPaymentScreenState extends State<CarRentalPaymentScreen> {
   }
 
   Widget _buildDynamicImage(String imageString) {
-    if (imageString.startsWith('http'))
+    if (imageString.startsWith('http')) {
       return Image.network(
         imageString,
         fit: BoxFit.cover,
         errorBuilder: (c, e, s) => Container(color: Colors.grey[200]),
       );
+    }
     if (imageString.isNotEmpty) {
       try {
         return Image.memory(
@@ -3096,7 +3105,7 @@ class AddNewCarScreen extends StatefulWidget {
 
 class _AddNewCarScreenState extends State<AddNewCarScreen> {
   bool _isUploading = false;
-  File? _imageFile;
+  final List<File?> _imageFiles = [null, null, null];
 
   int _seatCount = 5;
   String _selectedYear = "2023";
@@ -3120,16 +3129,88 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
     'Van',
   ];
 
-  Future<void> _pickImageFromCamera() async {
+  Future<void> _pickImage(int slotIndex) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40, height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Text(
+                "Add Car Photo",
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF137FEC)),
+                title: const Text("Take Photo"),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF137FEC)),
+                title: const Text("Choose from Gallery"),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              if (_imageFiles[slotIndex] != null)
+                ListTile(
+                  leading: Icon(Icons.delete_outline, color: Colors.red.shade400),
+                  title: Text("Remove Photo", style: TextStyle(color: Colors.red.shade400)),
+                  onTap: () {
+                    setState(() => _imageFiles[slotIndex] = null);
+                    Navigator.pop(context);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
     final pickedFile = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 20,
-      maxWidth: 600,
+      source: source,
+      imageQuality: 85,
+      maxWidth: 800,
     );
     if (pickedFile != null) {
+      final corrected = await _fixImageOrientation(pickedFile.path, slotIndex);
       setState(() {
-        _imageFile = File(pickedFile.path);
+        _imageFiles[slotIndex] = corrected;
       });
+    }
+  }
+
+  /// Reads the image EXIF orientation metadata and physically rotates
+  /// the pixels to match it, then saves to a temp file.
+  /// This fixes upside-down / rotated photos on Android.
+  Future<File> _fixImageOrientation(String sourcePath, int slotIndex) async {
+    try {
+      final bytes = await File(sourcePath).readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) return File(sourcePath);
+      // bakeOrientation reads EXIF rotation/flip and applies it physically
+      final fixed = img.bakeOrientation(decoded);
+      final tempDir = await getTemporaryDirectory();
+      final outFile = File('${tempDir.path}/car_photo_$slotIndex.jpg');
+      await outFile.writeAsBytes(img.encodeJpg(fixed, quality: 85));
+      return outFile;
+    } catch (_) {
+      // If anything fails, fall back to original file
+      return File(sourcePath);
     }
   }
 
@@ -3166,12 +3247,15 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
         if (placemarks.isNotEmpty) {
           Placemark place = placemarks.first;
           List<String> addressParts = [];
-          if (place.street != null && place.street!.isNotEmpty)
+          if (place.street != null && place.street!.isNotEmpty) {
             addressParts.add(place.street!);
-          if (place.subLocality != null && place.subLocality!.isNotEmpty)
+          }
+          if (place.subLocality != null && place.subLocality!.isNotEmpty) {
             addressParts.add(place.subLocality!);
-          if (place.locality != null && place.locality!.isNotEmpty)
+          }
+          if (place.locality != null && place.locality!.isNotEmpty) {
             addressParts.add(place.locality!);
+          }
           setState(() {
             _locationDisplay =
                 addressParts.isNotEmpty
@@ -3206,10 +3290,10 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
       );
       return;
     }
-    if (_imageFile == null) {
+    if (_imageFiles.every((f) => f == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Please take a photo of your car."),
+          content: Text("Please add at least one photo of your car."),
           backgroundColor: Colors.red,
         ),
       );
@@ -3219,8 +3303,14 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
     setState(() => _isUploading = true);
 
     try {
-      List<int> imageBytes = await _imageFile!.readAsBytes();
-      String base64Image = base64Encode(imageBytes);
+      // Encode all provided photos to base64
+      List<String> base64Images = [];
+      for (final file in _imageFiles) {
+        if (file != null) {
+          List<int> bytes = await file.readAsBytes();
+          base64Images.add(base64Encode(bytes));
+        }
+      }
 
       List<String> featuresList = [
         _selectedYear,
@@ -3233,14 +3323,15 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
         'type': _selectedCarType,
         'price': double.parse(_priceController.text.trim()),
         'features': featuresList,
-        'imageUrl': base64Image,
+        'imageUrl': base64Images.first,
+        'imageUrls': base64Images,
         'tag': 'New',
         'status': 'available',
         'lat': _selectedLocation!.latitude,
         'lng': _selectedLocation!.longitude,
         'status_admin': 'pending',
         'submittedAt': FieldValue.serverTimestamp(),
-        'bookedDates': [], // Initializes empty array
+        'bookedDates': [],
       });
 
       if (mounted) {
@@ -3403,8 +3494,9 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
                                       color: Color(0xFF137FEC),
                                     ),
                                     onPressed: () {
-                                      if (_seatCount > 1)
+                                      if (_seatCount > 1) {
                                         setState(() => _seatCount--);
+                                      }
                                     },
                                   ),
                                   Text(
@@ -3611,97 +3703,93 @@ class _AddNewCarScreenState extends State<AddNewCarScreen> {
 
   Widget _buildPhotoGrid() {
     return Row(
-      children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: _pickImageFromCamera,
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF137FEC).withOpacity(0.5),
-                    style: BorderStyle.solid,
-                  ),
-                  image:
-                      _imageFile != null
-                          ? DecorationImage(
-                            image: FileImage(_imageFile!),
+      children: List.generate(3, (index) {
+        final file = _imageFiles[index];
+        final isFirst = index == 0;
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(right: index < 2 ? 12 : 0),
+            child: GestureDetector(
+              onTap: () => _pickImage(index),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: file != null
+                        ? Colors.transparent
+                        : (isFirst ? const Color(0xFFF8FAFC) : Colors.grey.shade100),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: file != null
+                          ? Colors.transparent
+                          : (isFirst
+                              ? const Color(0xFF137FEC).withOpacity(0.5)
+                              : Colors.grey.shade300),
+                    ),
+                    image: file != null
+                        ? DecorationImage(
+                            image: FileImage(file),
                             fit: BoxFit.cover,
                           )
-                          : null,
-                ),
-                child:
-                    _imageFile == null
-                        ? Column(
+                        : null,
+                  ),
+                  child: file != null
+                      ? Stack(
+                          children: [
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.4),
+                                  shape: BoxShape.circle,
+                                ),
+                                padding: const EdgeInsets.all(4),
+                                child: const Icon(
+                                  Icons.edit,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF137FEC).withOpacity(0.1),
+                                color: isFirst
+                                    ? const Color(0xFF137FEC).withOpacity(0.1)
+                                    : Colors.grey.shade200,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(
-                                Icons.camera_alt,
-                                color: Color(0xFF137FEC),
+                              child: Icon(
+                                isFirst ? Icons.add_a_photo_outlined : Icons.directions_car,
+                                color: isFirst ? const Color(0xFF137FEC) : Colors.grey.shade400,
+                                size: isFirst ? 22 : 28,
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              "Take Photo",
-                              style: TextStyle(
-                                color: Color(0xFF137FEC),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
+                            if (isFirst) ...[
+                              const SizedBox(height: 4),
+                              const Text(
+                                "Add Photo",
+                                style: TextStyle(
+                                  color: Color(0xFF137FEC),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
+                            ],
                           ],
-                        )
-                        : null,
+                        ),
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Icon(
-                Icons.directions_car,
-                color: Colors.grey.shade300,
-                size: 32,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: Icon(
-                Icons.directions_car,
-                color: Colors.grey.shade300,
-                size: 32,
-              ),
-            ),
-          ),
-        ),
-      ],
+        );
+      }),
     );
   }
 }

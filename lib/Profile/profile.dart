@@ -1,13 +1,17 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../CarRental/carreturn.dart';
 import '../CarRental/Carcancel_booking.dart';
 import '../CarRental/report_incident.dart';
+import '../Bus/bus_firebase.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -20,9 +24,6 @@ class ProfileScreen extends StatelessWidget {
           final User? currentUser = authSnapshot.data ?? FirebaseAuth.instance.currentUser;
           final String userEmail = currentUser?.email ?? 'guest@example.com';
           final String userId = currentUser?.uid ?? '';
-          final String displayName = (currentUser?.displayName?.trim().isNotEmpty == true)
-              ? currentUser!.displayName!
-              : userEmail.split('@').first;
 
           return Scaffold(
             backgroundColor: const Color(0xFFF6F7F8),
@@ -65,19 +66,29 @@ class ProfileScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                      width: double.infinity,
-                      color: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 32),
-                      child: Column(
-                          children: [
-                            Container(width: 100, height: 100, decoration: BoxDecoration(color: Colors.blue.shade100, shape: BoxShape.circle), child: Icon(Icons.person, size: 60, color: Colors.blue.shade700)),
-                            const SizedBox(height: 16),
-                            Text(displayName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
-                            const SizedBox(height: 4),
-                            Text(userEmail, style: TextStyle(fontSize: 14, color: Colors.grey.shade600))
-                          ]
-                      )
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: userId.isNotEmpty
+                        ? FirebaseFirestore.instance.collection('users').doc(userId).snapshots()
+                        : const Stream.empty(),
+                    builder: (context, firestoreSnapshot) {
+                      String displayName;
+                      String photoUrl = '';
+                      if (firestoreSnapshot.hasData && firestoreSnapshot.data!.exists) {
+                        final data = firestoreSnapshot.data!.data() as Map<String, dynamic>?;
+                        final fullName = data?['fullName']?.toString().trim() ?? '';
+                        displayName = fullName.isNotEmpty ? fullName : userEmail.split('@').first;
+                        photoUrl = data?['photoUrl']?.toString() ?? '';
+                      } else {
+                        final authName = currentUser?.displayName?.trim() ?? '';
+                        displayName = authName.isNotEmpty ? authName : userEmail.split('@').first;
+                      }
+                      return _ProfileHeader(
+                        userId: userId,
+                        displayName: displayName,
+                        userEmail: userEmail,
+                        photoUrl: photoUrl,
+                      );
+                    },
                   ),
                   const SizedBox(height: 24),
 
@@ -171,7 +182,7 @@ class ProfileScreen extends StatelessWidget {
                 Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("No upcoming bus trips.", style: TextStyle(color: Colors.grey.shade500)))
               else
                 SizedBox(
-                    height: 165,
+                    height: 265,
                     child: ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       scrollDirection: Axis.horizontal,
@@ -188,7 +199,7 @@ class ProfileScreen extends StatelessWidget {
                 Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text("No past bus trips.", style: TextStyle(color: Colors.grey.shade500)))
               else
                 SizedBox(
-                    height: 165,
+                    height: 215,
                     child: ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 24),
                       scrollDirection: Axis.horizontal,
@@ -242,7 +253,10 @@ class ProfileScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Wrap(
                                 spacing: 6, runSpacing: 6,
-                                children: seats.map((seat) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(6)), child: Text(seat, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)))).toList()
+                                children: [
+                                  ...seats.take(seats.length > 6 ? 5 : 6).map((seat) => Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(6)), child: Text(seat, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)))),
+                                  if (seats.length > 6) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(6)), child: Text('+${seats.length - 5}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
+                                ]
                             )
                           ]
                       )
@@ -251,44 +265,193 @@ class ProfileScreen extends StatelessWidget {
               Container(width: 1, color: Colors.grey.shade200),
               Expanded(
                   flex: 1,
-                  child: GestureDetector(
-                    onTap: () {
-                      if (!isPast) {
-                        _showQRCodeDialog(context, qrData, busName, dateStr, seats);
-                      } else {
-                        if (!isRated) {
-                          _showRateTripDialog(context, doc.id, busId, busName);
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You have already rated this trip. Thank you!")));
-                        }
-                      }
-                    },
-                    child: Container(
-                      color: Colors.transparent,
-                      child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                  child: !isPast
+                      ? Column(
                           children: [
-                            Icon(
-                                !isPast ? Icons.qr_code : (isRated ? Icons.star : Icons.star_border),
-                                color: !isPast ? const Color(0xFF137FEC) : (isRated ? Colors.amber : Colors.orange),
-                                size: 32
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => _showQRCodeDialog(context, qrData, busName, dateStr, seats),
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.qr_code, color: Color(0xFF137FEC), size: 26),
+                                      const SizedBox(height: 4),
+                                      const Text("View QR", style: TextStyle(color: Color(0xFF137FEC), fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                                !isPast ? "View QR" : (isRated ? "Rated" : "Rate Trip"),
-                                style: TextStyle(
-                                    color: !isPast ? const Color(0xFF137FEC) : (isRated ? Colors.amber.shade700 : Colors.orange.shade700),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold
-                                )
-                            )
-                          ]
-                      ),
-                    ),
-                  )
+                            Container(height: 1, color: Colors.grey.shade200),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => _showCancelBusTripDialog(context, doc.id, busId, seats, busName, dateStr),
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.cancel_outlined, color: Colors.red.shade400, size: 26),
+                                      const SizedBox(height: 4),
+                                      Text("Cancel", style: TextStyle(color: Colors.red.shade400, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Container(height: 1, color: Colors.grey.shade200),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (!isRated) {
+                                    _showRateTripDialog(context, doc.id, busId, busName);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You have already rated this trip. Thank you!")));
+                                  }
+                                },
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(isRated ? Icons.star_rounded : Icons.star_border_rounded, color: isRated ? Colors.amber : Colors.orange, size: 26),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        isRated ? "Rated" : "Rate",
+                                        style: TextStyle(color: isRated ? Colors.amber.shade700 : Colors.orange.shade700, fontSize: 10, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (!isRated) {
+                                    _showRateTripDialog(context, doc.id, busId, busName);
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You have already rated this trip. Thank you!")));
+                                  }
+                                },
+                                child: Container(
+                                  color: Colors.transparent,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(isRated ? Icons.star : Icons.star_border, color: isRated ? Colors.amber : Colors.orange, size: 32),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        isRated ? "Rated" : "Rate Trip",
+                                        style: TextStyle(color: isRated ? Colors.amber.shade700 : Colors.orange.shade700, fontSize: 12, fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
               )
             ]
         )
+    );
+  }
+
+  void _showCancelBusTripDialog(BuildContext context, String ticketId, String busId, List<String> seats, String busName, String dateStr) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        bool isCancelling = false;
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Text("Cancel Bus Trip", style: TextStyle(fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Are you sure you want to cancel this trip?"),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(10)),
+                    child: Row(
+                      children: [
+                        Icon(Icons.directions_bus, color: Colors.red.shade400, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(busName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              Text("$dateStr  •  Seat(s): ${seats.join(', ')}", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text("This action cannot be undone.", style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isCancelling ? null : () => Navigator.pop(context),
+                  child: const Text("Keep Trip"),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                  onPressed: isCancelling ? null : () async {
+                    setState(() => isCancelling = true);
+                    try {
+                      // 1. Delete the ticket from main Firebase
+                      await FirebaseFirestore.instance.collection('tickets').doc(ticketId).delete();
+
+                      // 2. Remove booked seats from main Firebase bus_seats
+                      await FirebaseFirestore.instance
+                          .collection('bus_seats')
+                          .doc(busId)
+                          .update({'bookedSeats': FieldValue.arrayRemove(seats)});
+
+                      // 3. Best-effort: remove seats from partner's Firebase bus_routes
+                      try {
+                        final busDb = await getBusFirestore();
+                        await busDb.collection('bus_routes').doc(busId).update({
+                          'bookedSeats': FieldValue.arrayRemove(seats),
+                        });
+                      } catch (_) {}
+
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Trip cancelled successfully."), backgroundColor: Colors.green),
+                        );
+                      }
+                    } catch (e) {
+                      setState(() => isCancelling = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Failed to cancel trip: $e"), backgroundColor: Colors.red),
+                      );
+                    }
+                  },
+                  child: isCancelling
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("Yes, Cancel Trip"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -363,26 +526,25 @@ class ProfileScreen extends StatelessWidget {
                                     setState(() => isSubmitting = true);
 
                                     try {
-                                      final ticketRef = FirebaseFirestore.instance.collection('tickets').doc(ticketId);
+                                      // Bus routes live in the SECONDARY Firebase project.
+                                      // We must query and update them there so the rating
+                                      // shows up on the Bus Schedule screen.
+                                      final busDb = await getBusFirestore();
+                                      final routesSnapshot = await busDb.collection('bus_routes').get();
 
-                                      // ⭐ FETCH ALL ROUTES REGARDLESS OF NAME (We will filter manually)
-                                      final routesSnapshot = await FirebaseFirestore.instance.collection('bus_routes').get();
-
-                                      // Convert the target name to completely lowercase for safe matching
                                       String targetNameLower = busName.toLowerCase().trim();
 
                                       List<DocumentSnapshot> matchingRoutes = [];
                                       int maxCount = 0;
                                       double currentTotal = 0.0;
 
-                                      // ⭐ MANUALLY FIND ALL MATCHES
                                       for (var doc in routesSnapshot.docs) {
                                         var data = doc.data();
                                         String dbName = (data['Busname'] ?? data['busName'] ?? '').toString().toLowerCase().trim();
 
                                         if (dbName == targetNameLower) {
                                           matchingRoutes.add(doc);
-                                          int docCount = data['ratingCount'] ?? 0;
+                                          int docCount = (data['ratingCount'] ?? 0).toInt();
                                           if (docCount >= maxCount) {
                                             maxCount = docCount;
                                             currentTotal = (data['totalRatingScore'] ?? 0).toDouble();
@@ -390,30 +552,32 @@ class ProfileScreen extends StatelessWidget {
                                         }
                                       }
 
-                                      // Calculate new overall average
                                       double newTotal = currentTotal + selectedRating;
                                       int newCount = maxCount + 1;
                                       double newAverage = newTotal / newCount;
 
-                                      // Use WriteBatch to update everything safely
-                                      WriteBatch batch = FirebaseFirestore.instance.batch();
-
-                                      // Mark ticket as rated
-                                      batch.update(ticketRef, {
-                                        'isRated': true,
-                                        'ratingGiven': selectedRating
-                                      });
-
-                                      // ⭐ UPDATE ALL MATCHING ROUTES
+                                      // Update all matching routes in the SECONDARY Firebase.
+                                      // WriteBatch cannot span two Firestore instances, so we
+                                      // use a secondary batch for routes and a separate primary
+                                      // write for the ticket.
+                                      final routesBatch = busDb.batch();
                                       for (var doc in matchingRoutes) {
-                                        batch.update(doc.reference, {
+                                        routesBatch.update(doc.reference, {
                                           'ratingCount': newCount,
                                           'totalRatingScore': newTotal,
                                           'rating': newAverage,
                                         });
                                       }
+                                      await routesBatch.commit();
 
-                                      await batch.commit();
+                                      // Mark the ticket as rated in the PRIMARY Firebase.
+                                      await FirebaseFirestore.instance
+                                          .collection('tickets')
+                                          .doc(ticketId)
+                                          .update({
+                                        'isRated': true,
+                                        'ratingGiven': selectedRating,
+                                      });
 
                                       if (context.mounted) {
                                         Navigator.pop(context);
@@ -505,6 +669,159 @@ class ProfileScreen extends StatelessWidget {
 }
 
 // ==========================================
+// PROFILE HEADER WITH PHOTO UPLOAD
+// ==========================================
+class _ProfileHeader extends StatefulWidget {
+  final String userId;
+  final String displayName;
+  final String userEmail;
+  final String photoUrl;
+
+  const _ProfileHeader({
+    required this.userId,
+    required this.displayName,
+    required this.userEmail,
+    required this.photoUrl,
+  });
+
+  @override
+  State<_ProfileHeader> createState() => _ProfileHeaderState();
+}
+
+class _ProfileHeaderState extends State<_ProfileHeader> {
+  bool _isUploading = false;
+
+  Future<void> _pickAndUploadImage() async {
+    final source = await _showImageSourceDialog();
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(
+      source: source,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+    if (pickedFile == null) return;
+
+    setState(() => _isUploading = true);
+    try {
+      final ref = FirebaseStorage.instance
+          .ref()
+          .child('profile_pictures')
+          .child('${widget.userId}.jpg');
+
+      await ref.putFile(File(pickedFile.path));
+      final downloadUrl = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .set({'photoUrl': downloadUrl}, SetOptions(merge: true));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Profile picture updated!"), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to upload photo: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  Future<ImageSource?> _showImageSourceDialog() async {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16), decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+              const Text("Change Profile Photo", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF137FEC)),
+                title: const Text("Choose from Gallery"),
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF137FEC)),
+                title: const Text("Take a Photo"),
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: _isUploading ? null : _pickAndUploadImage,
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade100,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
+                  ),
+                  child: _isUploading
+                      ? const CircularProgressIndicator(strokeWidth: 3)
+                      : ClipOval(
+                          child: widget.photoUrl.isNotEmpty
+                              ? Image.network(
+                                  widget.photoUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Icon(Icons.person, size: 60, color: Colors.blue.shade700),
+                                )
+                              : Icon(Icons.person, size: 60, color: Colors.blue.shade700),
+                        ),
+                ),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF137FEC),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(widget.displayName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87)),
+          const SizedBox(height: 4),
+          Text(widget.userEmail, style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
 // PERSONAL INFO CARD
 // ==========================================
 class _PersonalInfoCard extends StatefulWidget {
@@ -560,6 +877,10 @@ class _PersonalInfoCardState extends State<_PersonalInfoCard> {
     });
     try {
       await user.updateDisplayName(trimmed);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .update({'fullName': trimmed});
       await user.reload();
       final refreshed = FirebaseAuth.instance.currentUser;
       _lastLoadedName = _displayNameFor(refreshed);

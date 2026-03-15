@@ -12,7 +12,7 @@ class PaymentScreen extends StatefulWidget {
   final String busName;
   final String busId;
   final String date;
-  final Function({String? paymentId, String? payerEmail}) onPaymentSuccess;
+  final Future<void> Function({String? paymentId, String? payerEmail}) onPaymentSuccess;
 
   const PaymentScreen({
     super.key,
@@ -163,7 +163,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _paymentOrderId = null;
       });
 
-      widget.onPaymentSuccess(paymentId: orderId, payerEmail: payerEmail);
+      await widget.onPaymentSuccess(paymentId: orderId, payerEmail: payerEmail);
 
       if (mounted) {
         showDialog(

@@ -10,6 +10,7 @@ class SeatSelectionScreen extends StatefulWidget {
   final String busId;
   final String busName;
   final String price;
+  final String travelDate;
   final int maxSeatsAllowed; // Kept so it doesn't break the previous screen's navigation
 
   const SeatSelectionScreen({
@@ -17,6 +18,7 @@ class SeatSelectionScreen extends StatefulWidget {
     required this.busId,
     this.busName = "Bus Name",
     this.price = "25.00",
+    this.travelDate = '',
     this.maxSeatsAllowed = 1,
   });
 
@@ -84,6 +86,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
           selectedSeats: _selectedSeats,
           busName: widget.busName,
           busId: widget.busId,
+          date: widget.travelDate.isNotEmpty ? widget.travelDate : _todayDateString(),
           onPaymentSuccess: ({String? paymentId, String? payerEmail}) =>
               _finalizeBooking(paymentId: paymentId, payerEmail: payerEmail),
         ),
@@ -91,16 +94,30 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
     );
   }
 
+  String _todayDateString() {
+    final now = DateTime.now();
+    return "${now.year}-${now.month}-${now.day}";
+  }
+
   Future<void> _finalizeBooking({String? paymentId, String? payerEmail}) async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       debugPrint("Error: User is not logged in.");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error: Not logged in. Please log in and contact support.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
 
     try {
-      DateTime now = DateTime.now();
-      String travelDate = "${now.year}-${now.month}-${now.day}";
+      final String travelDate = widget.travelDate.isNotEmpty
+          ? widget.travelDate
+          : _todayDateString();
       String ticketId = "TKT-${DateTime.now().millisecondsSinceEpoch}";
 
       // Save ticket to PRIMARY project (so it shows in profile)
@@ -144,6 +161,15 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
 
     } catch (e) {
       debugPrint("Error saving booking: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Payment was received but ticket could not be saved. Please contact support. Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
     }
   }
 

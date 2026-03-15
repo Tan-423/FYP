@@ -65,8 +65,9 @@ class _CarReturnScreenState extends State<CarReturnScreen> {
         _targetLng = carDoc['lng'];
       }
 
-      if (_targetLat == null || _targetLng == null)
+      if (_targetLat == null || _targetLng == null) {
         throw Exception("Car location missing");
+      }
 
       String coordString =
           "(${_targetLat!.toStringAsFixed(5)}, ${_targetLng!.toStringAsFixed(5)})";
@@ -78,17 +79,19 @@ class _CarReturnScreenState extends State<CarReturnScreen> {
         if (placemarks.isNotEmpty) {
           Placemark place = placemarks.first;
           List<String> parts = [];
-          if (place.name != null && place.name!.isNotEmpty)
+          if (place.name != null && place.name!.isNotEmpty) {
             parts.add(place.name!);
-          if (place.street != null && place.street!.isNotEmpty)
+          }
+          if (place.street != null && place.street!.isNotEmpty) {
             parts.add(place.street!);
-          if (place.locality != null && place.locality!.isNotEmpty)
+          }
+          if (place.locality != null && place.locality!.isNotEmpty) {
             parts.add(place.locality!);
+          }
           parts = parts.toSet().toList();
 
           _destinationAddress =
-              (parts.isNotEmpty ? parts.join(", ") : "Map Location") +
-              "\nCoords: $coordString";
+              "${parts.isNotEmpty ? parts.join(", ") : "Map Location"}\nCoords: $coordString";
         } else {
           _destinationAddress = "Map Location\nCoords: $coordString";
         }
@@ -102,8 +105,9 @@ class _CarReturnScreenState extends State<CarReturnScreen> {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied)
+        if (permission == LocationPermission.denied) {
           throw Exception("Location permissions denied.");
+        }
       }
 
       Position position = await Geolocator.getCurrentPosition(
@@ -168,9 +172,9 @@ class _CarReturnScreenState extends State<CarReturnScreen> {
     );
     if (pickedFile != null) {
       setState(() {
-        if (slot == "Front")
+        if (slot == "Front") {
           _frontPhoto = File(pickedFile.path);
-        else if (slot == "Back")
+        } else if (slot == "Back")
           _backPhoto = File(pickedFile.path);
         else if (slot == "Driver Side")
           _driverPhoto = File(pickedFile.path);

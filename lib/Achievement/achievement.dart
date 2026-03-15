@@ -414,16 +414,14 @@ class _AchievementScreenState extends State<AchievementScreen> {
                             primaryBlue,
                           ),
                           const SizedBox(height: 16),
-                          ...availableRewards
-                              .map(
-                                (reward) => _buildRewardListItem(
-                                  context,
-                                  reward,
-                                  primaryBlue,
-                                  currentPoints,
-                                ),
-                              )
-                              .toList(),
+                          ...availableRewards.map(
+                            (reward) => _buildRewardListItem(
+                              context,
+                              reward,
+                              primaryBlue,
+                              currentPoints,
+                            ),
+                          ),
                           const SizedBox(height: 32),
 
                           _buildSectionHeader(

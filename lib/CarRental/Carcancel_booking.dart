@@ -45,17 +45,19 @@ class _CancelBookingScreenState extends State<CancelBookingScreen> {
   final Color _borderDark = const Color(0xFFDBE0E6);
 
   Widget _buildDynamicImage(String imageString) {
-    if (imageString.isEmpty)
+    if (imageString.isEmpty) {
       return Container(
         color: Colors.grey[200],
         child: const Icon(Icons.directions_car, color: Colors.grey),
       );
-    if (imageString.startsWith('http'))
+    }
+    if (imageString.startsWith('http')) {
       return Image.network(
         imageString,
         fit: BoxFit.cover,
         errorBuilder: (c, e, s) => Container(color: Colors.grey[200]),
       );
+    }
     try {
       String cleanBase64 =
           imageString.contains(',') ? imageString.split(',').last : imageString;

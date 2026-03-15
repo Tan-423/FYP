@@ -4,8 +4,29 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
 
-class AdminDashboardScreen extends StatelessWidget {
+import '../Bus/bus_firebase.dart';
+
+class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
+
+  @override
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  /// Firestore instance pointing to the secondary bus project (fyp-project-2cb4d).
+  FirebaseFirestore? _busDb;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBusDb();
+  }
+
+  Future<void> _initBusDb() async {
+    final db = await getBusFirestore();
+    if (mounted) setState(() => _busDb = db);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,9 +90,13 @@ class AdminDashboardScreen extends StatelessWidget {
 
                   Expanded(
                     child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance.collection('bus_routes').snapshots(),
+                        stream: _busDb?.collection('bus_routes').snapshots(),
                         builder: (context, snapshot) {
-                          String totalRoutes = snapshot.hasData ? snapshot.data!.docs.length.toString() : "...";
+                          String totalRoutes = _busDb == null
+                              ? '...'
+                              : snapshot.hasData
+                                  ? snapshot.data!.docs.length.toString()
+                                  : '...';
 
                           return SingleChildScrollView(
                             padding: const EdgeInsets.all(24),
@@ -118,7 +143,7 @@ class AdminDashboardScreen extends StatelessWidget {
                                         _buildManagementCard(
                                           title: "Bus Route Management", description: "Create, optimize and monitor intercity bus transit routes.", imageUrl: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800", icon: Icons.directions_bus, statLabel: "Active Fleets", btnLabel: "Add New Route", cardColor: cardColor, borderColor: borderColor, textColor: textColor, primaryColor: primaryColor, isDark: isDark,
                                           statWidget: StreamBuilder<QuerySnapshot>(
-                                            stream: FirebaseFirestore.instance.collection('bus_routes').snapshots(),
+                                            stream: _busDb?.collection('bus_routes').snapshots(),
                                             builder: (context, snapshot) {
                                               int count = snapshot.hasData ? snapshot.data!.docs.length : 0;
                                               return Text(count.toString(), style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.bold, color: textColor, fontSize: 14));
@@ -533,6 +558,27 @@ class _AddBusRoutePageState extends State<AddBusRoutePage> {
   final TextEditingController _dateController = TextEditingController();
   TimeOfDay? _departureTime;
   TimeOfDay? _arrivalTime;
+  FirebaseFirestore? _busDb;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initBusDb();
+  }
+
+  Future<void> _initBusDb() async {
+    try {
+      final db = await getBusFirestore();
+      if (mounted) setState(() => _busDb = db);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to connect to bus database: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
 
   Future<void> _selectDate(BuildContext context) async {
     DateTime? picked = await showDatePicker(context: context, initialDate: DateTime.now(), firstDate: DateTime.now(), lastDate: DateTime(2030));
@@ -545,12 +591,30 @@ class _AddBusRoutePageState extends State<AddBusRoutePage> {
   }
 
   Future<void> _saveRoute() async {
-    if (_formKey.currentState!.validate()) {
-      if (_departureTime == null || _arrivalTime == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Departure and Arrival times.")));
-        return;
-      }
+    if (_busDb == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Bus database is still connecting. Please try again."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      // Retry connecting
+      _initBusDb();
+      return;
+    }
 
+    if (!_formKey.currentState!.validate()) return;
+
+    if (_departureTime == null || _arrivalTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select both Departure and Arrival times.")),
+      );
+      return;
+    }
+
+    setState(() => _isSaving = true);
+
+    try {
       String formatTime(TimeOfDay time) {
         final hours = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
         final minutes = time.minute.toString().padLeft(2, '0');
@@ -563,7 +627,7 @@ class _AddBusRoutePageState extends State<AddBusRoutePage> {
         return input.split(' ').map((str) => str.isNotEmpty ? str[0].toUpperCase() + str.substring(1) : '').join(' ');
       }
 
-      await FirebaseFirestore.instance.collection('bus_routes').add({
+      await _busDb!.collection('bus_routes').add({
         'Busname': _nameController.text.trim(),
         'from': capitalize(_fromController.text.trim()),
         'to': capitalize(_toController.text.trim()),
@@ -576,8 +640,18 @@ class _AddBusRoutePageState extends State<AddBusRoutePage> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Route Added Successfully! ✨"), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Route Added Successfully! ✨"), backgroundColor: Colors.green),
+        );
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Failed to save route: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -608,7 +682,25 @@ class _AddBusRoutePageState extends State<AddBusRoutePage> {
               ],
             ),
             const SizedBox(height: 32),
-            SizedBox(height: 50, child: ElevatedButton(onPressed: _saveRoute, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF137FEC), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text("Save Route to Database", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))))
+            SizedBox(
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : _saveRoute,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF137FEC),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFF137FEC).withOpacity(0.6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
+                      )
+                    : const Text("Save Route to Database", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            )
           ],
         ),
       ),

@@ -50,9 +50,10 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-    _animation = Tween<double>(begin: 0.3, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.3,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
     if (widget.delay == 0) {
       _controller.repeat(reverse: true);
     } else {
@@ -73,10 +74,7 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _animation,
-      child: const CircleAvatar(
-        radius: 3,
-        backgroundColor: Color(0xFF60A5FA),
-      ),
+      child: const CircleAvatar(radius: 3, backgroundColor: Color(0xFF60A5FA)),
     );
   }
 }

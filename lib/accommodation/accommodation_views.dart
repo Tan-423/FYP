@@ -731,7 +731,9 @@ class _DetailViewState extends State<DetailView> {
     final displayImages =
         item.images.isNotEmpty
             ? item.images
-            : (item.image.isNotEmpty ? [item.image] : [fallbackAccommodationImageUrl]);
+            : (item.image.isNotEmpty
+                ? [item.image]
+                : [fallbackAccommodationImageUrl]);
 
     return Stack(
       children: [
@@ -746,8 +748,7 @@ class _DetailViewState extends State<DetailView> {
                     controller: _pageController,
                     itemCount: displayImages.length,
                     onPageChanged:
-                        (index) =>
-                            setState(() => _currentImageIndex = index),
+                        (index) => setState(() => _currentImageIndex = index),
                     itemBuilder:
                         (context, index) => AccommodationImage(
                           imageUrl: displayImages[index],
@@ -1093,8 +1094,9 @@ class _BookingViewState extends State<BookingView> {
 
   String _descriptionForType(String label) {
     final key = label.toLowerCase();
-    if (key.contains('suite'))
+    if (key.contains('suite')) {
       return 'Separate living area + premium amenities';
+    }
     if (key.contains('deluxe')) return 'More space + city view';
     if (key.contains('family')) return 'Ideal for families and groups';
     return 'Comfortable essentials for 2 guests';
@@ -2848,7 +2850,8 @@ class PublishFormViewState extends State<PublishFormView> {
             url,
             fit: BoxFit.cover,
             errorBuilder:
-                (_, __, ___) => const Icon(Icons.broken_image, color: Colors.black26),
+                (_, __, ___) =>
+                    const Icon(Icons.broken_image, color: Colors.black26),
           ),
         ),
         Positioned(
@@ -2917,11 +2920,19 @@ class PublishFormViewState extends State<PublishFormView> {
         child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF2563EB), size: 26),
+            Icon(
+              Icons.add_photo_alternate_outlined,
+              color: Color(0xFF2563EB),
+              size: 26,
+            ),
             SizedBox(height: 4),
             Text(
               'Add Photo',
-              style: TextStyle(fontSize: 10, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                fontSize: 10,
+                color: Color(0xFF2563EB),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),

@@ -1,7 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'login_page.dart';
 import 'auth_state.dart';
 
 class OtpVerificationPage extends StatefulWidget {
@@ -9,7 +8,12 @@ class OtpVerificationPage extends StatefulWidget {
   final String email;
   final String password;
 
-  const OtpVerificationPage({super.key, required this.generatedOtp, required this.email, required this.password});
+  const OtpVerificationPage({
+    super.key,
+    required this.generatedOtp,
+    required this.email,
+    required this.password,
+  });
 
   @override
   State<OtpVerificationPage> createState() => _OtpVerificationPageState();
@@ -99,18 +103,33 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
                 const SizedBox(height: 32),
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: primaryColor.withOpacity(0.1), shape: BoxShape.circle),
-                  child: Icon(Icons.mark_email_read_outlined, size: 48, color: primaryColor),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.mark_email_read_outlined,
+                    size: 48,
+                    color: primaryColor,
+                  ),
                 ),
                 const SizedBox(height: 32),
                 Text(
                   "Check your email",
-                  style: GoogleFonts.plusJakartaSans(fontSize: 32, fontWeight: FontWeight.bold, color: textColor),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   "We've sent a 6-digit security code to:\n${widget.email}",
-                  style: GoogleFonts.plusJakartaSans(fontSize: 16, color: Colors.grey[600], height: 1.5),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 16,
+                    color: Colors.grey[600],
+                    height: 1.5,
+                  ),
                 ),
                 const SizedBox(height: 40),
                 TextField(
@@ -118,14 +137,21 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
                   keyboardType: TextInputType.number,
                   maxLength: 6,
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.plusJakartaSans(fontSize: 32, letterSpacing: 8, fontWeight: FontWeight.bold),
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 32,
+                    letterSpacing: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
                   decoration: InputDecoration(
                     counterText: "",
                     hintText: "000000",
                     hintStyle: TextStyle(color: Colors.grey[400]),
                     filled: true,
                     fillColor: isDark ? const Color(0xFF1F2937) : Colors.white,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide.none,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 32),
@@ -136,11 +162,17 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
                     onPressed: _verifyOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryColor,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     child: Text(
                       "Verify & Login",
-                      style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
@@ -152,4 +184,3 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
     );
   }
 }
-

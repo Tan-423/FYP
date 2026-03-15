@@ -1,11 +1,10 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'bill_tracking_firebase_service.dart';
 import 'bill_tracking_models.dart';
 import 'bill_tracking_widgets.dart';
 
@@ -85,10 +84,7 @@ class BillDashboard extends StatelessWidget {
                   onTap: onEditGroup,
                   child: const Padding(
                     padding: EdgeInsets.all(12),
-                    child: Icon(
-                      Icons.edit_rounded,
-                      color: Color(0xFF2563EB),
-                    ),
+                    child: Icon(Icons.edit_rounded, color: Color(0xFF2563EB)),
                   ),
                 ),
               ),
@@ -241,6 +237,7 @@ class _BillHistoryViewState extends State<BillHistoryView> {
 class BillCreateGroup extends StatefulWidget {
   const BillCreateGroup({
     required this.ownerId,
+    required this.ownerUser,
     required this.onSave,
     required this.onCancel,
     this.initialGroup,
@@ -250,12 +247,18 @@ class BillCreateGroup extends StatefulWidget {
   });
 
   final String ownerId;
+
+  /// The logged-in user — auto-added as the first member.
+  final BillUser ownerUser;
   final ValueChanged<BillGroup> onSave;
   final VoidCallback onCancel;
+
   /// When provided the form runs in edit mode, pre-filled with existing data.
   final BillGroup? initialGroup;
+
   /// Bills that already exist in this group — used to guard member deletion.
   final List<BillModel> existingBills;
+
   /// Called when the user confirms group deletion (edit mode only).
   final VoidCallback? onDeleteGroup;
 
@@ -266,10 +269,15 @@ class BillCreateGroup extends StatefulWidget {
 }
 
 class _BillCreateGroupState extends State<BillCreateGroup> {
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _memberController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _searchController = TextEditingController();
+  final _firebaseService = BillTrackingFirebaseService();
+
   final List<BillUser> _members = [];
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+  String _searchMessage = '';
 
   @override
   void initState() {
@@ -279,32 +287,73 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
       _nameController.text = g.name;
       _descriptionController.text = g.description;
       _members.addAll(g.members);
+    } else {
+      // Always include the group creator as the first member.
+      _members.add(widget.ownerUser);
     }
   }
 
-  void _addMember() {
-    if (_memberController.text.trim().isEmpty) return;
-    final name = _memberController.text.trim();
-    
-    // Validate that name doesn't contain digits
-    if (RegExp(r'\d').hasMatch(name)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Member name cannot contain digits'),
-        ),
-      );
-      return;
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descriptionController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _searchUsers() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) return;
+
+    setState(() {
+      _isSearching = true;
+      _searchMessage = '';
+      _searchResults = [];
+    });
+
+    try {
+      final results = await _firebaseService.searchUsersByName(query);
+      final filtered =
+          results
+              .where(
+                (u) =>
+                    u['uid'] != null &&
+                    !_members.any((m) => m.id == u['uid'] as String),
+              )
+              .toList();
+
+      setState(() {
+        _searchResults = filtered;
+        _isSearching = false;
+        if (filtered.isEmpty) {
+          _searchMessage = 'No matching users found for "$query".';
+        }
+      });
+    } catch (_) {
+      setState(() {
+        _isSearching = false;
+        _searchMessage = 'Search failed. Please try again.';
+      });
     }
-    
+  }
+
+  void _addFromSearch(Map<String, dynamic> userData) {
+    final uid = userData['uid'] as String? ?? '';
+    final name = userData['fullName'] as String? ?? '';
+    if (uid.isEmpty || name.isEmpty) return;
+    if (_members.any((m) => m.id == uid)) return;
+
     setState(() {
       _members.add(
         BillUser(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
+          id: uid,
           name: name,
-          avatarUrl: 'https://i.pravatar.cc/150?u=$name',
+          avatarUrl: 'https://i.pravatar.cc/150?u=$uid',
         ),
       );
-      _memberController.clear();
+      _searchResults = [];
+      _searchController.clear();
+      _searchMessage = '';
     });
   }
 
@@ -319,6 +368,12 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
   }
 
   void _removeMember(BillUser user) {
+    if (user.id == widget.ownerUser.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You cannot remove yourself from the group.')),
+      );
+      return;
+    }
     if (_isMemberInBills(user)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -394,48 +449,135 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
             for (final member in _members)
               Chip(
                 avatar: CircleAvatar(
-                  backgroundImage: NetworkImage(member.avatarUrl),
+                  backgroundColor: const Color(0xFF2563EB),
+                  child: Text(
+                    member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
                 ),
-                label: Text(member.name),
-                deleteIcon: _isMemberInBills(member)
-                    ? const Tooltip(
-                        message: 'Has assigned bills',
-                        child: Icon(Icons.lock_rounded, size: 14),
-                      )
-                    : const Icon(Icons.close_rounded, size: 16),
+                label: Text(
+                  member.id == widget.ownerUser.id
+                      ? '${member.name} (You)'
+                      : member.name,
+                ),
+                deleteIcon:
+                    member.id == widget.ownerUser.id
+                        ? const Tooltip(
+                          message: 'Group creator — cannot be removed',
+                          child: Icon(Icons.lock_rounded, size: 14),
+                        )
+                        : _isMemberInBills(member)
+                        ? const Tooltip(
+                          message: 'Has assigned bills',
+                          child: Icon(Icons.lock_rounded, size: 14),
+                        )
+                        : const Icon(Icons.close_rounded, size: 16),
                 onDeleted: () => _removeMember(member),
               ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
+        // ── User search ──────────────────────────────────────────────────
+        Text(
+          'Add Member by Name',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Type the exact name of a registered user to add them.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
               child: TextField(
-                controller: _memberController,
+                controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Add member name...',
+                  hintText: 'Search by name...',
                   filled: true,
                   fillColor: Colors.white,
+                  prefixIcon: const Icon(Icons.search_rounded),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(16),
                     borderSide: BorderSide.none,
                   ),
                 ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.deny(RegExp(r'\d')),
-                ],
-                onSubmitted: (_) => _addMember(),
+                onSubmitted: (_) => _searchUsers(),
               ),
             ),
             const SizedBox(width: 8),
-            IconButton(
-              onPressed: _addMember,
-              icon: const Icon(Icons.add_circle_rounded),
-              color: const Color(0xFF2563EB),
-            ),
+            _isSearching
+                ? const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    onPressed: _searchUsers,
+                    icon: const Icon(Icons.search_rounded),
+                    color: const Color(0xFF2563EB),
+                    tooltip: 'Search',
+                  ),
           ],
         ),
+
+        // Search results
+        if (_searchMessage.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            _searchMessage,
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+        ],
+        if (_searchResults.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                for (final user in _searchResults)
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF2563EB),
+                      child: Text(
+                        (user['fullName'] as String? ?? '?')[0].toUpperCase(),
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                    title: Text(user['fullName'] as String? ?? ''),
+                    subtitle: Text(
+                      user['email'] as String? ?? '',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(
+                        Icons.add_circle_rounded,
+                        color: Color(0xFF2563EB),
+                      ),
+                      onPressed: () => _addFromSearch(user),
+                      tooltip: 'Add to group',
+                    ),
+                    onTap: () => _addFromSearch(user),
+                  ),
+              ],
+            ),
+          ),
+        ],
+        // ─────────────────────────────────────────────────────────────────
+
         const SizedBox(height: 24),
         Row(
           children: [
@@ -450,19 +592,26 @@ class _BillCreateGroupState extends State<BillCreateGroup> {
               child: FilledButton(
                 onPressed: () {
                   final name = _nameController.text.trim();
-                  if (name.isEmpty || _members.isEmpty) {
+                  if (name.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                          'Please enter group name and add at least one member',
-                        ),
+                        content: Text('Please enter a group name.'),
+                      ),
+                    );
+                    return;
+                  }
+                  if (_members.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('A group must have at least one member.'),
                       ),
                     );
                     return;
                   }
                   widget.onSave(
                     BillGroup(
-                      id: widget.initialGroup?.id ??
+                      id:
+                          widget.initialGroup?.id ??
                           DateTime.now().microsecondsSinceEpoch.toString(),
                       ownerId: widget.ownerId,
                       name: name,
@@ -505,37 +654,37 @@ class _DeleteGroupButton extends StatelessWidget {
     return Tooltip(
       message: hasBills ? 'Remove all bills before deleting this group' : '',
       child: OutlinedButton.icon(
-        onPressed: hasBills
-            ? null
-            : () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Delete Group'),
-                    content: Text(
-                      'Are you sure you want to delete "$groupName"? This action cannot be undone.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(false),
-                        child: const Text('Cancel'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(true),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
+        onPressed:
+            hasBills
+                ? null
+                : () async {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder:
+                        (ctx) => AlertDialog(
+                          title: const Text('Delete Group'),
+                          content: Text(
+                            'Are you sure you want to delete "$groupName"? This action cannot be undone.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(true),
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.red,
+                              ),
+                              child: const Text('Delete'),
+                            ),
+                          ],
                         ),
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed == true) onConfirm();
-              },
+                  );
+                  if (confirmed == true) onConfirm();
+                },
         icon: const Icon(Icons.delete_outline_rounded),
-        label: Text(
-          hasBills ? 'Cannot Delete (has bills)' : 'Delete Group',
-        ),
+        label: Text(hasBills ? 'Cannot Delete (has bills)' : 'Delete Group'),
         style: OutlinedButton.styleFrom(
           foregroundColor: hasBills ? Colors.grey : Colors.red,
           side: BorderSide(

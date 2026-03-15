@@ -49,21 +49,25 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reset link sent! Check your inbox (and spam folder).')),
+          const SnackBar(
+            content: Text(
+              'Reset link sent! Check your inbox (and spam folder).',
+            ),
+          ),
         );
         Navigator.pop(context);
       }
     } on FirebaseAuthException catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_getFirebaseErrorMessage(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_getFirebaseErrorMessage(e))));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unexpected error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Unexpected error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -81,14 +85,35 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 12.0,
+              ),
               child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
-                    child: Container(width: 40, height: 40, child: Icon(Icons.arrow_back_ios_new, size: 20, color: textColor)),
+                    child: SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Icon(
+                        Icons.arrow_back_ios_new,
+                        size: 20,
+                        color: textColor,
+                      ),
+                    ),
                   ),
-                  Expanded(child: Text("Forgot Password", textAlign: TextAlign.center, style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.bold, color: textColor))),
+                  Expanded(
+                    child: Text(
+                      "Forgot Password",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 40),
                 ],
               ),
@@ -100,16 +125,49 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 32),
-                    Center(child: Container(width: 96, height: 96, decoration: BoxDecoration(color: primaryColor.withOpacity(0.1), shape: BoxShape.circle), child: Icon(Icons.lock_reset, size: 48, color: primaryColor))),
+                    Center(
+                      child: Container(
+                        width: 96,
+                        height: 96,
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.lock_reset,
+                          size: 48,
+                          color: primaryColor,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 32),
-                    Text("Forgot Password", style: GoogleFonts.plusJakartaSans(fontSize: 30, fontWeight: FontWeight.bold, color: textColor, height: 1.1)),
+                    Text(
+                      "Forgot Password",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 30,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                        height: 1.1,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       "Enter the email address associated with your account and we will send you a link to reset your password.",
-                      style: GoogleFonts.plusJakartaSans(fontSize: 16, color: secondaryColor, height: 1.5),
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 16,
+                        color: secondaryColor,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 32),
-                    Text("Email Address", style: GoogleFonts.plusJakartaSans(fontSize: 14, fontWeight: FontWeight.w600, color: textColor)),
+                    Text(
+                      "Email Address",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Container(
                       height: 56,
@@ -120,12 +178,20 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                       ),
                       child: TextField(
                         controller: _emailController,
-                        style: GoogleFonts.plusJakartaSans(fontSize: 16, color: textColor),
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 16,
+                          color: textColor,
+                        ),
                         decoration: InputDecoration(
-                          prefixIcon: Icon(Icons.mail_outlined, color: secondaryColor),
+                          prefixIcon: Icon(
+                            Icons.mail_outlined,
+                            color: secondaryColor,
+                          ),
                           hintText: "name@example.com",
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                          ),
                         ),
                       ),
                     ),
@@ -137,15 +203,28 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                         onPressed: _isLoading ? null : _sendResetLink,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
-                              )
-                            : Text("Send Reset Link", style: GoogleFonts.plusJakartaSans(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                        child:
+                            _isLoading
+                                ? const SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                                : Text(
+                                  "Send Reset Link",
+                                  style: GoogleFonts.plusJakartaSans(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
                       ),
                     ),
                   ],

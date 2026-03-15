@@ -44,6 +44,8 @@ class BillGroup {
       'name': name,
       'description': description,
       'members': members.map((m) => m.toMap()).toList(),
+      // Flat array of UIDs — enables Firestore arrayContains queries
+      'memberIds': members.map((m) => m.id).toList(),
     };
   }
 
