@@ -47,3 +47,8 @@ app.*.map.json
 # Dialogflow service account
 android/app/traverplannerchatbot-sxcn-601250d812e4.json
 assets/dialogflow/*.json
+
+# Environment files with secrets
+functions/.env*
+.env
+.env.*
