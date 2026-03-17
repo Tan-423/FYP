@@ -299,15 +299,29 @@ ${rows.join()}
         .where('Status', isEqualTo: 'Confirmed')
         .snapshots()
         .asyncMap((snapshot) async {
+          // Fetch all accommodation docs in parallel instead of sequentially.
+          final docs = snapshot.docs;
+          final accommodationIds = docs
+              .map((d) => d.data()['AccommodationId'] as String?)
+              .whereType<String>()
+              .toSet()
+              .toList();
+
+          final accommodationFutures = accommodationIds
+              .map((id) => _fetchAccommodationById(id));
+          final accommodationResults = await Future.wait(accommodationFutures);
+          final accommodationMap = <String, AccommodationItem>{};
+          for (var i = 0; i < accommodationIds.length; i++) {
+            final item = accommodationResults[i];
+            if (item != null) accommodationMap[accommodationIds[i]] = item;
+          }
+
           final bookings = <BookingItem>[];
-          for (final doc in snapshot.docs) {
+          for (final doc in docs) {
             final data = doc.data();
             final accommodationId = data['AccommodationId'] as String?;
             if (accommodationId == null) continue;
-
-            final accommodation = await _fetchAccommodationById(
-              accommodationId,
-            );
+            final accommodation = accommodationMap[accommodationId];
             if (accommodation == null) continue;
 
             final checkInValue = data['CheckIn'];
@@ -337,12 +351,7 @@ ${rows.join()}
               ),
             );
           }
-          // Sort by creation date in memory (newest first)
-          bookings.sort((a, b) {
-            // If we have creation timestamp in the future, use it
-            // For now, sort by booking ID (which includes timestamp)
-            return b.bookingId.compareTo(a.bookingId);
-          });
+          bookings.sort((a, b) => b.bookingId.compareTo(a.bookingId));
           return bookings;
         });
   }

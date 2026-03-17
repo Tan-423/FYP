@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -88,6 +89,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _tabIndex = 0;
   int _notificationCount = 3;
+  final Set<int> _visitedTabs = {0};
 
   final List<ModuleItem> _moduleCatalog = const [
     ModuleItem(
@@ -304,17 +306,27 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Build each tab only once it has been visited, avoiding eager initialization
+    // of heavy screens like MapViewScreen (GPS + Maps API) and ProfileScreen (Firestore).
+    Widget _lazyTab(int index, Widget Function() builder) {
+      if (!_visitedTabs.contains(index)) return const SizedBox.shrink();
+      return builder();
+    }
+
     final pages = [
       HomeView(
         notificationCount: _notificationCount,
         onClearNotifications: () => setState(() => _notificationCount = 0),
         onModuleTap: _openModule,
         moduleCatalog: _moduleCatalog,
-        onNavigateToTrips: () => setState(() => _tabIndex = 2),
+        onNavigateToTrips: () => setState(() {
+          _tabIndex = 2;
+          _visitedTabs.add(2);
+        }),
       ),
-      const MapViewScreen(),
-      const SavedPlansScreen(),
-      const ProfileScreen(),
+      _lazyTab(1, () => const MapViewScreen()),
+      _lazyTab(2, () => const SavedPlansScreen()),
+      _lazyTab(3, () => const ProfileScreen()),
     ];
 
     return Scaffold(
@@ -329,7 +341,10 @@ class _MainShellState extends State<MainShell> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
+        onDestinationSelected: (index) => setState(() {
+          _tabIndex = index;
+          _visitedTabs.add(index);
+        }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_rounded), label: 'Home'),
           NavigationDestination(
@@ -806,7 +821,7 @@ class _SeasonTripsSection extends StatelessWidget {
         color: Colors.grey[300],
         borderRadius: BorderRadius.circular(20),
         image: DecorationImage(
-          image: NetworkImage(trip.imageUrl),
+          image: CachedNetworkImageProvider(trip.imageUrl),
           fit: BoxFit.cover,
         ),
         boxShadow: [
@@ -901,7 +916,7 @@ class _Header extends StatelessWidget {
       children: [
         const CircleAvatar(
           radius: 20,
-          backgroundImage: NetworkImage(
+          backgroundImage: CachedNetworkImageProvider(
             'https://api.dicebear.com/7.x/avataaars/svg?seed=Alex',
           ),
           backgroundColor: Color(0xFFDBEAFE),

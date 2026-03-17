@@ -122,6 +122,14 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
           (bills) {
             setState(() {
               _bills = bills;
+              // Keep _selectedBill in sync so the details view always reflects
+              // the latest status from Firestore (avoids stale delete checks).
+              if (_selectedBill != null) {
+                final updated = bills
+                    .where((b) => b.id == _selectedBill!.id)
+                    .firstOrNull;
+                if (updated != null) _selectedBill = updated;
+              }
             });
           },
           onError: (error) {
@@ -267,7 +275,8 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
     if (_activeBills.isEmpty) return;
 
     try {
-      for (final bill in _activeBills) {
+      // Write all bill updates in parallel rather than one-by-one.
+      await Future.wait(_activeBills.map((bill) {
         final updatedStatuses = <String, BillStatus>{
           for (final member in members) member.id: BillStatus.settled,
         };
@@ -287,8 +296,8 @@ class _BillTrackingScreenState extends State<BillTrackingScreen> {
           status: BillStatus.settled,
           memberStatuses: updatedStatuses,
         );
-        await _firebaseService.updateBill(updatedBill);
-      }
+        return _firebaseService.updateBill(updatedBill);
+      }));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('All bills marked as settled.')),

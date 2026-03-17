@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -971,14 +972,25 @@ class CarRentalsSection extends StatefulWidget {
 
 class _CarRentalsSectionState extends State<CarRentalsSection> {
   int _selectedTab = 0;
+  // Cache address futures by carId so FutureBuilder doesn't re-fire on every rebuild.
+  final Map<String, Future<String>> _addressFutureCache = {};
+  // Cache decoded base64 bytes to avoid synchronous decode on every build.
+  final Map<String, List<int>> _base64Cache = {};
 
   Widget _buildDynamicImage(String imageString) {
     if (imageString.isEmpty) return Container(color: Colors.grey[200], child: const Icon(Icons.directions_car, color: Colors.grey));
     if (imageString.startsWith('http')) return Image.network(imageString, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey[200]));
     try {
-      String cleanBase64 = imageString.contains(',') ? imageString.split(',').last : imageString;
-      return Image.memory(base64Decode(cleanBase64), fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey[200]));
+      if (!_base64Cache.containsKey(imageString)) {
+        String cleanBase64 = imageString.contains(',') ? imageString.split(',').last : imageString;
+        _base64Cache[imageString] = base64Decode(cleanBase64);
+      }
+      return Image.memory(_base64Cache[imageString]! as Uint8List, fit: BoxFit.cover, errorBuilder: (c, e, s) => Container(color: Colors.grey[200]));
     } catch (e) { return Container(color: Colors.grey[200]); }
+  }
+
+  Future<String> _getCachedCarAddress(String carId) {
+    return _addressFutureCache.putIfAbsent(carId, () => _fetchCarAddress(carId));
   }
 
   Future<String> _fetchCarAddress(String carId) async {
@@ -1132,7 +1144,7 @@ class _CarRentalsSectionState extends State<CarRentalsSection> {
               children: [
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.end, children: [Expanded(child: Text(data['carName'] ?? 'Unknown Car', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF111418)), maxLines: 1, overflow: TextOverflow.ellipsis)), Text("\$${pricePerDay.toStringAsFixed(0)}/day", style: TextStyle(color: Colors.grey.shade500, fontWeight: FontWeight.w600, fontSize: 14))]), const SizedBox(height: 16),
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.calendar_today, color: Color(0xFF137FEC), size: 18), const SizedBox(width: 12), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(dateRange, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111418))), const SizedBox(height: 2), Text(dayDetails, style: TextStyle(color: Colors.grey.shade500, fontSize: 12))])]), const SizedBox(height: 16),
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.location_on, color: Color(0xFF137FEC), size: 18), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Return Location", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111418))), const SizedBox(height: 2), FutureBuilder<String>(future: _fetchCarAddress(carId), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return Text("Loading address...", style: TextStyle(color: Colors.grey.shade500, fontSize: 12)); return Text(snapshot.data ?? "Location unavailable", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 4); })]))]),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [const Icon(Icons.location_on, color: Color(0xFF137FEC), size: 18), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [const Text("Return Location", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111418))), const SizedBox(height: 2), FutureBuilder<String>(future: _getCachedCarAddress(carId), builder: (context, snapshot) { if (snapshot.connectionState == ConnectionState.waiting) return Text("Loading address...", style: TextStyle(color: Colors.grey.shade500, fontSize: 12)); return Text(snapshot.data ?? "Location unavailable", style: TextStyle(color: Colors.grey.shade600, fontSize: 12, height: 1.4), maxLines: 4); })]))]),
                 const Padding(padding: EdgeInsets.symmetric(vertical: 16), child: Divider(height: 1)),
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("Confirmation", style: TextStyle(color: Colors.grey.shade500, fontSize: 11)), Text("#$confirmationNo", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF111418)))]), ElevatedButton(onPressed: () => _showManageBookingOptions(context, doc), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF137FEC), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), elevation: 0), child: const Text("Manage Booking", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)))])
               ],

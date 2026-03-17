@@ -766,7 +766,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         child: TextField(
                           controller: _inputController,
                           textInputAction: TextInputAction.send,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) {},
                           onSubmitted: (_) {
                             if (_inputController.text.trim().isNotEmpty && !_isTyping) {
                               _handleSendMessage();
@@ -813,29 +813,32 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         ),
                       ),
                       const SizedBox(width: 4),
-                      ElevatedButton(
-                        onPressed:
-                            _inputController.text.trim().isEmpty || _isTyping
-                                ? null
-                                : _handleSendMessage,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: headerColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.all(14),
-                          shape: const CircleBorder(),
-                          elevation: 2,
+                      ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _inputController,
+                        builder: (context, value, _) => ElevatedButton(
+                          onPressed:
+                              value.text.trim().isEmpty || _isTyping
+                                  ? null
+                                  : _handleSendMessage,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: headerColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.all(14),
+                            shape: const CircleBorder(),
+                            elevation: 2,
+                          ),
+                          child:
+                              _isTyping
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                  : const Icon(Icons.send_rounded, size: 18),
                         ),
-                        child:
-                            _isTyping
-                                ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                                : const Icon(Icons.send_rounded, size: 18),
                       ),
                     ],
                   ),

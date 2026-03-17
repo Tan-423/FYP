@@ -86,6 +86,14 @@ class _MapViewScreenState extends State<MapViewScreen> {
   int _currentStepIndex = 0;
   String _currentInstruction = "Calculating route...";
 
+  // Cached marker set — rebuilt only when viewpoints or selection changes.
+  Set<Marker> _cachedMarkers = {};
+  List<Viewpoint> _lastMarkersViewpoints = [];
+  Viewpoint? _lastMarkersSelected;
+
+  // GPS throttle — limit full UI rebuilds to at most once every 500 ms.
+  DateTime _lastGpsSetState = DateTime(2000);
+
   @override
   void initState() {
     super.initState();
@@ -526,47 +534,52 @@ class _MapViewScreenState extends State<MapViewScreen> {
         newPos.longitude,
       );
 
-      setState(() {
-        _carLocation = newPos;
-        _currentLocation = newPos;
+      // Eagerly update position state, then throttle UI rebuilds to 500 ms.
+      _carLocation = newPos;
+      _currentLocation = newPos;
 
-        if (_selectedViewpoint != null) {
-          _distanceRemaining = Geolocator.distanceBetween(
-            newPos.latitude,
-            newPos.longitude,
-            _selectedViewpoint!.location.latitude,
-            _selectedViewpoint!.location.longitude,
-          );
-        }
+      if (_selectedViewpoint != null) {
+        _distanceRemaining = Geolocator.distanceBetween(
+          newPos.latitude,
+          newPos.longitude,
+          _selectedViewpoint!.location.latitude,
+          _selectedViewpoint!.location.longitude,
+        );
+      }
 
-        if (_navigationSteps.isNotEmpty &&
-            _currentStepIndex < _navigationSteps.length) {
-          var currentStep = _navigationSteps[_currentStepIndex];
-          LatLng targetPoint = currentStep.points.last;
-
-          double distToTurn = Geolocator.distanceBetween(
-            newPos.latitude,
-            newPos.longitude,
-            targetPoint.latitude,
-            targetPoint.longitude,
-          );
-
-          if (distToTurn < 25) {
-            _currentStepIndex++;
-            if (_currentStepIndex < _navigationSteps.length) {
-              _currentInstruction =
-                  _navigationSteps[_currentStepIndex].instruction;
-            }
-          } else {
-            _currentInstruction = currentStep.instruction;
+      bool didAdvanceStep = false;
+      if (_navigationSteps.isNotEmpty &&
+          _currentStepIndex < _navigationSteps.length) {
+        final currentStep = _navigationSteps[_currentStepIndex];
+        final targetPoint = currentStep.points.last;
+        final distToTurn = Geolocator.distanceBetween(
+          newPos.latitude,
+          newPos.longitude,
+          targetPoint.latitude,
+          targetPoint.longitude,
+        );
+        if (distToTurn < 25) {
+          _currentStepIndex++;
+          didAdvanceStep = true;
+          if (_currentStepIndex < _navigationSteps.length) {
+            _currentInstruction = _navigationSteps[_currentStepIndex].instruction;
           }
-
-          if (_currentStepIndex != _lastSpokenStepIndex) {
-            _speakInstruction(_currentInstruction);
-            _lastSpokenStepIndex = _currentStepIndex;
-          }
+        } else {
+          _currentInstruction = currentStep.instruction;
         }
-      });
+        if (_currentStepIndex != _lastSpokenStepIndex) {
+          _speakInstruction(_currentInstruction);
+          _lastSpokenStepIndex = _currentStepIndex;
+        }
+      }
+
+      final now = DateTime.now();
+      if (!didAdvanceStep &&
+          now.difference(_lastGpsSetState).inMilliseconds < 500) {
+        return;
+      }
+      _lastGpsSetState = now;
+      setState(() {});
 
       if (_distanceRemaining < 30) {
         _finishNavigation();
@@ -634,37 +647,49 @@ class _MapViewScreenState extends State<MapViewScreen> {
     );
   }
 
-  Set<Marker> _buildMarkers() {
-    Set<Marker> markers =
-        _allViewpoints.map((vp) {
-          return Marker(
-            markerId: MarkerId(vp.id),
-            position: vp.location,
-            infoWindow: InfoWindow(title: vp.title),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              vp.category.contains("PARK") || vp.category.contains("NATURE")
-                  ? BitmapDescriptor.hueGreen
-                  : BitmapDescriptor.hueRed,
-            ),
-            onTap: () {
-              if (!_isNavigating) {
-                setState(() => _selectedViewpoint = vp);
-                _moveCamera(vp.location, zoom: 16.0);
-              }
-            },
-          );
-        }).toSet();
+  // Return a cached marker set, rebuilding only when inputs actually changed.
+  Set<Marker> _getMarkers() {
+    final viewpointsChanged = !identical(_allViewpoints, _lastMarkersViewpoints) &&
+        _allViewpoints.length != _lastMarkersViewpoints.length;
+    final selectionChanged = _selectedViewpoint?.id != _lastMarkersSelected?.id;
 
-    // Show Custom Pin if the user tapped arbitrarily on the map
+    if (!viewpointsChanged && !selectionChanged && _cachedMarkers.isNotEmpty) {
+      return _cachedMarkers;
+    }
+
+    _lastMarkersViewpoints = _allViewpoints;
+    _lastMarkersSelected = _selectedViewpoint;
+    _cachedMarkers = _buildMarkersInternal();
+    return _cachedMarkers;
+  }
+
+  Set<Marker> _buildMarkersInternal() {
+    final markers = _allViewpoints.map((vp) {
+      return Marker(
+        markerId: MarkerId(vp.id),
+        position: vp.location,
+        infoWindow: InfoWindow(title: vp.title),
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          vp.category.contains("PARK") || vp.category.contains("NATURE")
+              ? BitmapDescriptor.hueGreen
+              : BitmapDescriptor.hueRed,
+        ),
+        onTap: () {
+          if (!_isNavigating) {
+            setState(() => _selectedViewpoint = vp);
+            _moveCamera(vp.location, zoom: 16.0);
+          }
+        },
+      );
+    }).toSet();
+
     if (_selectedViewpoint != null &&
         _selectedViewpoint!.id.startsWith("custom_")) {
       markers.add(
         Marker(
           markerId: MarkerId(_selectedViewpoint!.id),
           position: _selectedViewpoint!.location,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueMagenta,
-          ), // Unique color for custom pins
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueMagenta),
           infoWindow: InfoWindow(title: _selectedViewpoint!.title),
         ),
       );
@@ -687,9 +712,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
           markerId: const MarkerId("car"),
           position: _carLocation!,
           zIndex: 2,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
         ),
       );
     }
@@ -901,7 +924,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
                         target: _currentLocation,
                         zoom: 14.0,
                       ),
-                      markers: _buildMarkers(),
+                      markers: _getMarkers(),
                       polylines: _polylines,
                       myLocationEnabled: !_isNavigating,
                       myLocationButtonEnabled: false,

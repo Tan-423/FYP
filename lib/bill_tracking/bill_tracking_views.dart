@@ -2069,16 +2069,23 @@ class _BillDetailsViewState extends State<BillDetailsView> {
                   ),
                   IconButton(
                     onPressed: () {
-                      if (bill.status == BillStatus.settled) {
+                      if (bill.status == BillStatus.pending) {
                         _showSnackBar(
-                          'This bill has been settled and cannot be deleted.',
+                          'Pending bills cannot be deleted. Settle all payments first.',
                         );
                         return;
                       }
                       _confirmDelete();
                     },
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    tooltip: 'Delete bill',
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      color: bill.status == BillStatus.pending
+                          ? Colors.grey
+                          : null,
+                    ),
+                    tooltip: bill.status == BillStatus.pending
+                        ? 'Cannot delete a pending bill'
+                        : 'Delete bill',
                   ),
                   FilledButton(
                     onPressed: () async {

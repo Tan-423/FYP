@@ -1203,8 +1203,8 @@ class _BookingViewState extends State<BookingView> {
       return;
     }
 
-    // Validate email format
-    final emailRegex = RegExp(r'^[\w\.-]+@[\w\.-]+\.\w+$');
+    // Validate email format (+ is valid in local part per RFC 5321)
+    final emailRegex = RegExp(r'^[\w\.\+\-]+@[\w\.-]+\.\w+$');
     if (!emailRegex.hasMatch(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid email address.')),
